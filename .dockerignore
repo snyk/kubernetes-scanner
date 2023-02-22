@@ -1,0 +1,9 @@
+.bin/
+.circleci/
+.github/
+test/results/
+.git*
+*.js
+*.md
+*.yaml
+config.secret.json
