@@ -7,7 +7,7 @@ ARG COMMIT_SHA
 ARG GIT_TAG
 
 RUN go mod download
-RUN CGO_ENABLED=0 go build \
+RUN CGO_ENABLED=0 GOEXPERIMENT=boringcrypto go build \
     -ldflags="-s -w \
         -X github.com/snyk/kubernetes-scanner/build.commitSHA=$COMMIT_SHA \
         -X github.com/snyk/kubernetes-scanner/build.tag=$GIT_TAG\
@@ -18,4 +18,4 @@ RUN CGO_ENABLED=0 go build \
 FROM gcr.io/distroless/static
 
 COPY --from=build /go/bin/kubernetes-scanner /
-CMD ["/kubernetes-scanner"]
+ENTRYPOINT ["/kubernetes-scanner"]
