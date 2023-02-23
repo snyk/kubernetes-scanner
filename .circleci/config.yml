@@ -29,7 +29,6 @@ commands:
             - go-build-cache-{{ .Branch }}-{{ .Revision }}
             - go-build-cache-{{ .Branch }}-
             - go-build-cache-
-
 jobs:
   scan:
     resource_class: small
@@ -62,7 +61,11 @@ jobs:
       # we're not using the go/test command from the Go orb because that uses `-count=1` as an argument.
       # That means all tests are run every time, instead of honoring the cache.
       - run:
-          command: go test -race ./... 
+          command: |
+            # install required tools for kubebuilder tests.
+            go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+            source <(setup-envtest use -p env) 
+            go test -race ./... 
       - save-build-cache
 
   release:
