@@ -52,9 +52,10 @@ jobs:
       # saving & restoring the module cache takes almost 6x longer than simply fetching the modules...
       #- go/mod-download-cached
       - restore-build-cache 
+      - go/mod-download
       - run:
           command: |
-            golangci-lint run ./...
+            golangci-lint run -v --timeout=2m ./...
           environment:
             # we re-use the Go build cache as our lint-cache too.
             GOLANGCI_LINT_CACHE: /home/circleci/.cache/go-build
