@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kubernetes-scanner.fullname" . }}
+  labels:
+    {{- include "kubernetes-scanner.labels" . | nindent 4 }}
+  {{- with .Values.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  "config.yaml": |
+    metricsAddress: ":{{ .Values.metrics.port }}"
+    scanning:
+      requeueAfter: {{ .Values.requeueAfter }}
+      types:
+        {{- toYaml .Values.scanTypes | nindent 8 }}
