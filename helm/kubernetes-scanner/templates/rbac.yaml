@@ -1,0 +1,26 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kubernetes-scanner.fullname" . }}
+rules:
+  {{- range .Values.scanTypes }}
+  - verbs: ["watch", "list", "get"]
+    apiGroups: 
+      {{ toYaml .apiGroups }}
+    resources: 
+      {{ toYaml .resources }}
+  {{- end }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kubernetes-scanner.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ default (include "kubernetes-scanner.fullname" .) .Values.serviceAccount.name }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ include "kubernetes-scanner.fullname" . }}
+  apiGroup: rbac.authorization.k8s.io
