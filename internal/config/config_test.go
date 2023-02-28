@@ -2,11 +2,12 @@ package config
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"testing"
 	"time"
 
-	"github.com/snyk/kubernetes-scanner/internal/test"
+	"golang.org/x/exp/slices"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery/fake"
@@ -14,23 +15,21 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+
+	"github.com/snyk/kubernetes-scanner/internal/test"
 )
 
 func TestConfigValid(t *testing.T) {
 	cfg := &Config{
 		Scanning: Scan{
 			Types: []ScanType{{
-				GroupVersionKind: schema.GroupVersionKind{
-					Group:   "",
-					Version: "v1",
-					Kind:    "Pod",
-				},
+				APIGroups: []string{""},
+				Versions:  []string{"v1"},
+				Resources: []string{"pods"},
 			}, {
-				GroupVersionKind: schema.GroupVersionKind{
-					Group:   "custom-crd.snyk.io",
-					Version: "v1alpha2",
-					Kind:    "SecurityConfiguration",
-				},
+				APIGroups: []string{"custom-crd.snyk.io"},
+				Versions:  []string{"v1alpha2"},
+				Resources: []string{"securityconfigurations"},
 			}},
 		},
 	}
@@ -44,16 +43,13 @@ func TestConfigInvalid(t *testing.T) {
 	cfg := &Config{
 		Scanning: Scan{
 			Types: []ScanType{{
-				GroupVersionKind: schema.GroupVersionKind{Group: "",
-					Version: "v1",
-					Kind:    "Pod",
-				},
+				APIGroups: []string{""},
+				Versions:  []string{"v1"},
+				Resources: []string{"pods"},
 			}, {
-				GroupVersionKind: schema.GroupVersionKind{
-					Group:   "custom-crd.snyk.io",
-					Version: "v1beta1",
-					Kind:    "SecurityConfiguration",
-				},
+				APIGroups: []string{"custom-crd.snyk.io"},
+				Versions:  []string{"v1beta1"},
+				Resources: []string{"securityconfigurations"},
 			}},
 		},
 	}
@@ -74,20 +70,47 @@ func TestConfigRealAPIServer(t *testing.T) {
 		t.Fatalf("could not create temporary file for testing: %v", err)
 	}
 
-	const exampleConfig = `
-scanning:
-  types:
-  - group: ""
-    version: "v1"
-    kind: "Pod"
-  - group: "apps"
-    version: "v1"
-    kind: "Deployment"
-    namespaces: ["default"]
-  requeueAfter: 1m
+	const actualConfig = `
 metricsAddress: ":8080"
+scanning:
+  requeueAfter: 1m
+  types:
+  - apiGroups: [""]
+    resources: 
+      - pods
+  - apiGroups:
+    - "apps"
+    versions: ["v1"]
+    resources: ["deployments"]
+    namespaces: ["default"]
 `
 
+	expected := &Config{
+		MetricsAddress: ":8080",
+		Scanning: Scan{
+			RequeueAfter: metav1.Duration{Duration: time.Minute},
+			Types: []ScanType{{
+				APIGroups: []string{""},
+				Versions:  []string{},
+				Resources: []string{"pods"},
+				GVKs: []schema.GroupVersionKind{{
+					Group:   "",
+					Version: "v1",
+					Kind:    "Pod",
+				}},
+			}, {
+				APIGroups:  []string{"apps"},
+				Versions:   []string{"v1"},
+				Resources:  []string{"deployments"},
+				Namespaces: []string{"default"},
+				GVKs: []schema.GroupVersionKind{{
+					Group:   "apps",
+					Version: "v1",
+					Kind:    "Deployment",
+				}},
+			}},
+		},
+	}
 	restCfg := test.SetupEnv(t)
 	kubeCfgFile, err := os.CreateTemp(dir, "")
 	if err != nil {
@@ -103,7 +126,7 @@ metricsAddress: ":8080"
 	}
 	flag.Parse()
 
-	if _, err := f.Write([]byte(exampleConfig)); err != nil {
+	if _, err := f.Write([]byte(actualConfig)); err != nil {
 		t.Fatalf("error writing config file: %v", err)
 	}
 
@@ -116,35 +139,55 @@ metricsAddress: ":8080"
 		t.Fatalf("config validation error: %v", err)
 	}
 
-	if cfg.MetricsAddress != ":8080" {
-		t.Fatalf("incorrect metrics address. expected=%q, got=%q", ":8080", cfg.MetricsAddress)
-	}
-	if cfg.Scanning.RequeueAfter.Duration != time.Minute {
-		t.Fatalf("incorrect requeueAfter duration. expected=%v, got=%v",
-			time.Minute, cfg.Scanning.RequeueAfter.Duration)
-	}
-
-	if len(cfg.Scanning.Types) != 2 {
-		t.Fatalf("incorrect amount of scan types. expected=%v, got=%v", 2, len(cfg.Scanning.Types))
-	}
-	if st := cfg.Scanning.Types[0]; st.Group != "" || st.Version != "v1" || st.Kind != "Pod" || st.Namespaces != nil {
-		t.Fatalf("incorrect ScanType %v", st)
-	}
-	if st := cfg.Scanning.Types[1]; st.Group != "apps" || st.Version != "v1" ||
-		st.Kind != "Deployment" || st.Namespaces[0] != "default" {
-		t.Fatalf("incorrect ScanType %v", st)
+	if err := compareConfig(expected, cfg); err != nil {
+		t.Fatalf("config differs: %v", err)
 	}
 
 	cfg.Scanning.Types = append(cfg.Scanning.Types, ScanType{
-		GroupVersionKind: schema.GroupVersionKind{
-			Group:   "custom-crd.snyk.io",
-			Version: "v1beta1",
-			Kind:    "SecurityConfiguration",
-		}})
+		APIGroups: []string{"custom-crd.snyk.io"},
+		Versions:  []string{"v1beta1"},
+		Resources: []string{"securityconfigurations"},
+	})
 
 	if err := cfg.Validate(); err == nil {
 		t.Errorf("expected validation error, did not get one")
 	}
+}
+
+func compareConfig(expected, actual *Config) error {
+	if actual.MetricsAddress != expected.MetricsAddress {
+		return fmt.Errorf("incorrect metrics address. expected=%q, got=%q", expected.MetricsAddress, actual.MetricsAddress)
+	}
+	if actual.Scanning.RequeueAfter.Duration != expected.Scanning.RequeueAfter.Duration {
+		return fmt.Errorf("incorrect requeueAfter duration. expected=%v, got=%v",
+			expected.Scanning.RequeueAfter.Duration, actual.Scanning.RequeueAfter.Duration)
+	}
+
+	if len(actual.Scanning.Types) != len(expected.Scanning.Types) {
+		return fmt.Errorf("incorrect amount of scan types. expected=%v, got=%v",
+			len(expected.Scanning.Types), len(actual.Scanning.Types))
+	}
+
+	for i, typ := range actual.Scanning.Types {
+		// TODO: should the order be relevant?
+		exp := expected.Scanning.Types[i]
+		if len(typ.GVKs) != len(exp.GVKs) {
+			return fmt.Errorf("amount of GroupVersionKinds do not match. expected=%v, got=%v",
+				len(exp.GVKs), len(typ.GVKs))
+		}
+
+		for j, gvk := range typ.GVKs {
+			expGVK := exp.GVKs[j]
+			if gvk.Group != expGVK.Group || gvk.Version != expGVK.Version || gvk.Kind != expGVK.Kind {
+				return fmt.Errorf("GVK for type %v do not match. expected=%#v, got=%#v", i, expGVK, gvk)
+			}
+		}
+
+		if !slices.Equal(typ.Namespaces, exp.Namespaces) {
+			return fmt.Errorf("namespaces do not match. expected=%v, got=%v", exp.Namespaces, typ.Namespaces)
+		}
+	}
+	return nil
 }
 
 func generateKubeconfig(restCfg *rest.Config, targetFile string) error {

@@ -191,22 +191,14 @@ func newTest(t *testing.T) test {
 			},
 		},
 		types: []config.ScanType{{
-			GroupVersionKind: schema.GroupVersionKind{
-				Group:   "",
-				Version: "v1",
-				Kind:    "Secret",
-			}}, {
-			GroupVersionKind: schema.GroupVersionKind{
-				Group:   "",
-				Version: "v1",
-				Kind:    "ConfigMap",
-			}, Namespaces: []string{"foo"}}, {
-			GroupVersionKind: schema.GroupVersionKind{
-				Group:   "",
-				Version: "v1",
-				Kind:    "Pod",
-			}},
-		},
+			APIGroups: []string{""},
+			Resources: []string{"secrets", "pods"},
+			Versions:  []string{"v1"},
+		}, {
+			APIGroups:  []string{""},
+			Resources:  []string{"configmaps"},
+			Namespaces: []string{"foo"},
+		}},
 	}
 }
 

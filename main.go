@@ -10,21 +10,19 @@ import (
 
 	"github.com/snyk/kubernetes-scanner/build"
 	"github.com/snyk/kubernetes-scanner/internal/config"
-	"golang.org/x/exp/slices"
 
+	"golang.org/x/exp/slices"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
-
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func main() {
@@ -76,14 +74,16 @@ func setupController(cfg *config.Config, b backend) (manager.Manager, error) {
 	}
 
 	for _, scanType := range cfg.Scanning.Types {
-		if err := (&reconciler{
-			Reader:       mgr.GetClient(),
-			requeueAfter: cfg.Scanning.RequeueAfter.Duration,
-			backend:      b,
-			newObject:    newObjectFn(scanType.GroupVersionKind),
-			namespaces:   scanType.Namespaces,
-		}).SetupWithManager(mgr); err != nil {
-			return nil, fmt.Errorf("unable to create controller for GVK %v: %w", scanType.String(), err)
+		for _, gvk := range scanType.GVKs {
+			if err := (&reconciler{
+				Reader:       mgr.GetClient(),
+				requeueAfter: cfg.Scanning.RequeueAfter.Duration,
+				backend:      b,
+				newObject:    newObjectFn(gvk),
+				namespaces:   scanType.Namespaces,
+			}).SetupWithManager(mgr); err != nil {
+				return nil, fmt.Errorf("unable to create controller for GVK %v: %w", gvk, err)
+			}
 		}
 	}
 
