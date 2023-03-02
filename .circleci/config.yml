@@ -25,23 +25,36 @@ commands:
     steps:
       - restore_cache:
           name: Restoring Go build cache
-          keys: 
+          keys:
             - go-build-cache-{{ .Branch }}-{{ .Revision }}
             - go-build-cache-{{ .Branch }}-
             - go-build-cache-
+  install-helm:
+    steps:
+      - run:
+          name: Install Helm
+          command: |
+            if command -v helm &> /dev/null; then
+              echo "helm is already installed"
+              exit 0
+            fi
+            curl "https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3" > get_helm.sh
+            chmod 700 get_helm.sh
+            ./get_helm.sh
+
 jobs:
-  scan:
+  "Snyk scan":
     resource_class: small
     docker:
       - image: "cimg/go:1.20"
-    steps: 
+    steps:
       - checkout
       - snyk/scan:
           fail-on-issues: true
           monitor-on-build: false # ?
           organization: snyk-apps
 
-  test:
+  "Go test and lint":
     resource_class: medium
     executor:
       name: go/default
@@ -50,7 +63,7 @@ jobs:
       - checkout
       # saving & restoring the module cache takes almost 6x longer than simply fetching the modules...
       #- go/mod-download-cached
-      - restore-build-cache 
+      - restore-build-cache
       - go/mod-download
       - run:
           command: |
@@ -65,8 +78,28 @@ jobs:
             # install required tools for kubebuilder tests.
             go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
             source <(setup-envtest use -p env) 
-            go test -race ./... 
+            go test -race ./...
       - save-build-cache
+  "Helm lint":
+    resource_class: medium
+    executor:
+      name: go/default
+      tag: "1.20"
+    steps:
+      - checkout
+      - run:
+          name: Install Helm
+          command: |
+            if command -v helm &> /dev/null; then
+              echo "helm is already installed"
+              exit 0
+            fi
+            curl "https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3" > get_helm.sh
+            chmod 700 get_helm.sh
+            ./get_helm.sh
+      - run:
+          command: |
+            helm lint ./helm/*
 
   release:
     resource_class: small
@@ -78,34 +111,36 @@ jobs:
           name: build docker image
           command: make image
       #- run:
-          #name: push docker image
-          #command: make image-push
-
+      #name: push docker image
+      #command: make image-push
 
 workflows:
   "Test":
     jobs:
-      - test:
+      - "Go test and lint":
           filters:
             branches:
               ignore: [main]
-      - scan:
-          name: scan
+      - "Helm lint":
+          filters:
+            branches:
+              ignore: [main]
+      - "Snyk scan":
           context: ["snyk-apps"]
           filters:
             branches:
               ignore: [main]
   "Release":
     jobs:
-      - test:
+      - "Go test and lint":
           filters:
             branches:
               only: main
             tags:
               only: /^v.*/
       - release:
-          requires: ["test"]
-          context: [snyk-docker-build, snyk-bot-slack] 
+          requires: ["Go test and lint"]
+          context: [snyk-docker-build, snyk-bot-slack]
           filters:
             branches:
               ignore: /.*/
