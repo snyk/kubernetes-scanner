@@ -21,6 +21,8 @@ type Config struct {
 	Scanning       Scan   `json:"scanning"`
 	MetricsAddress string `json:"metricsAddress"`
 	ProbeAddress   string `json:"probeAddress"`
+	// OrganizationID is the snyk organization ID where data should be routed to.
+	OrganizationID string `json:"organizationID"`
 
 	Scheme     *runtime.Scheme `json:"-"`
 	RestConfig *rest.Config    `json:"-"`

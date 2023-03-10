@@ -1,0 +1,105 @@
+package backend
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+type Backend struct {
+	apiEndpoint string
+	clusterName string
+}
+
+func New(apiEndpoint string, clusterName string) *Backend {
+	return &Backend{
+		apiEndpoint: apiEndpoint,
+		clusterName: clusterName,
+	}
+}
+
+const contentTypeJSON = "application/vnd.api+json"
+
+func (b *Backend) Upsert(ctx context.Context, obj client.Object, orgID string, deletedAt *metav1.Time) error {
+	body, err := b.newPostBody(obj, deletedAt)
+	if err != nil {
+		return fmt.Errorf("could not construct request body: %w", err)
+	}
+
+	endpoint := fmt.Sprintf("%s/rest/orgs/%s/kubernetesresources?version=2023-02-20~experimental",
+		b.apiEndpoint, orgID)
+
+	req, err := http.NewRequest(http.MethodPost, endpoint, body)
+	if err != nil {
+		return fmt.Errorf("could not construct request: %w", err)
+	}
+	req.Header.Add("Content-Type", contentTypeJSON)
+
+	// the default client automatically honors HTTP_PROXY settings, see the docs for the
+	// DefaultTransport: https://pkg.go.dev/net/http#RoundTripper
+	resp, err := http.DefaultClient.Do(req.WithContext(ctx))
+	if err != nil {
+		return fmt.Errorf("could not post resource: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 || resp.StatusCode < 200 {
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("got non-zero exit code %v and could not read body: %w", resp.StatusCode, err)
+		}
+		return fmt.Errorf("got non-zero exit code %v with body %s", resp.StatusCode, body)
+	}
+
+	return nil
+}
+
+// for testing.
+var now = time.Now
+
+func (b *Backend) newPostBody(obj client.Object, deletedAt *metav1.Time) (io.Reader, error) {
+	r := &request{
+		Data: requestData{
+			Type: "kubernetesresource",
+			Attributes: requestAttributes{
+				ClusterName: b.clusterName,
+				Resources: []resource{{
+					ScannedAt:    metav1.Time{Time: now()},
+					ManifestBlob: obj,
+					DeletedAt:    deletedAt,
+				}},
+			},
+		},
+	}
+	body, err := json.Marshal(r)
+	if err != nil {
+		return nil, fmt.Errorf("could not marshal request body: %w", err)
+	}
+
+	return bytes.NewReader(body), nil
+}
+
+type request struct {
+	Data requestData `json:"data"`
+}
+
+type requestData struct {
+	Type       string            `json:"type"`
+	Attributes requestAttributes `json:"attributes"`
+}
+type requestAttributes struct {
+	ClusterName string     `json:"cluster_name"`
+	Resources   []resource `json:"resources"`
+}
+
+type resource struct {
+	ManifestBlob client.Object `json:"manifest_blob"`
+	ScannedAt    metav1.Time   `json:"scanned_at"`
+	DeletedAt    *metav1.Time  `json:"deleted_at,omitempty"`
+}

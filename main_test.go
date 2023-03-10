@@ -26,6 +26,7 @@ const (
 )
 
 func TestController(t *testing.T) {
+	const orgID = "abc"
 	if testing.Short() {
 		t.Skip("not running controller tests that spawn API server")
 	}
@@ -47,6 +48,7 @@ func TestController(t *testing.T) {
 			Types:        test.types,
 			RequeueAfter: metav1.Duration{Duration: time.Second},
 		},
+		OrganizationID: orgID,
 	}
 
 	if err := waitForAPI(ctx, c); err != nil {
@@ -113,7 +115,7 @@ func TestController(t *testing.T) {
 	// the first one immediately after create, and the next one a second later.
 	numReconciliationLoops := int(timeout/cfg.Scanning.RequeueAfter.Duration) + 1
 	for _, obj := range test.objects {
-		if err := checkObject(obj, numReconciliationLoops, events); err != nil {
+		if err := checkObject(obj, numReconciliationLoops, events, orgID); err != nil {
 			t.Errorf("%v", err)
 		}
 	}
@@ -215,20 +217,15 @@ func newFakeBackend() *fakeBackend {
 	}
 }
 
-func (f *fakeBackend) reconcile(ctx context.Context, obj client.Object) error {
-	if uid := obj.GetUID(); uid != "" {
-		f.reconciled <- newResourceID(obj)
-		return nil
-	}
-	return fmt.Errorf("object has no UID set!")
-}
+func (f *fakeBackend) Upsert(ctx context.Context, obj client.Object, orgID string, deletedAt *metav1.Time) error {
+	rID := newResourceID(obj, orgID)
 
-func (f *fakeBackend) delete(ctx context.Context, name types.NamespacedName, gvk schema.GroupVersionKind) error {
-	f.deleted <- resourceIdentifier{
-		GroupVersionKind: gvk,
-		NamespacedName:   name,
+	if deletedAt == nil {
+		f.reconciled <- rID
+	} else {
+		f.deleted <- rID
 	}
-	fmt.Printf("deleted resource %v %v/%v\n", gvk.String(), name.Namespace, name.Name)
+
 	return nil
 }
 
@@ -278,15 +275,17 @@ func (f *fakeBackend) Start(ctx context.Context) reconciliationEvents {
 type resourceIdentifier struct {
 	schema.GroupVersionKind
 	types.NamespacedName
+	orgID string
 }
 
-func newResourceID(from client.Object) resourceIdentifier {
+func newResourceID(from client.Object, orgID string) resourceIdentifier {
 	return resourceIdentifier{
 		GroupVersionKind: from.GetObjectKind().GroupVersionKind(),
 		NamespacedName: types.NamespacedName{
 			Name:      from.GetName(),
 			Namespace: from.GetNamespace(),
 		},
+		orgID: orgID,
 	}
 }
 
@@ -302,8 +301,8 @@ func (r resourceIdentifier) String() string {
 
 // checkObject checks that the given object has the correct amount of expectedReconciliations
 // tracked in the events.
-func checkObject(obj client.Object, expectedReconciliations int, events reconciliationEvents) error {
-	rID := newResourceID(obj)
+func checkObject(obj client.Object, expectedReconciliations int, events reconciliationEvents, orgID string) error {
+	rID := newResourceID(obj, orgID)
 	numReconciles, wasReconciled := events.reconciliations[rID]
 	// if the resource is not expected to be reconciled - we mark this with the label - then we need to
 	// make sure it wasn't.
@@ -327,7 +326,7 @@ func checkObject(obj client.Object, expectedReconciliations int, events reconcil
 
 	if numReconciles != expectedReconciliations {
 		return fmt.Errorf("resource %v has wrong amount of reconciles. expected=%v, got=%v",
-			newResourceID(obj), expectedReconciliations, numReconciles)
+			newResourceID(obj, orgID), expectedReconciliations, numReconciles)
 	}
 
 	if _, ok := events.deletions[rID]; !ok {

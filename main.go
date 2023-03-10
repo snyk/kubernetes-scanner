@@ -9,13 +9,14 @@ import (
 	"os"
 
 	"github.com/snyk/kubernetes-scanner/build"
+	"github.com/snyk/kubernetes-scanner/internal/backend"
 	"github.com/snyk/kubernetes-scanner/internal/config"
 
 	"golang.org/x/exp/slices"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -51,7 +52,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	mgr, err := setupController(cfg, defaultBackend{})
+	mgr, err := setupController(cfg, backend.New(snykAPIEndpoint(), "my-cluster-name"))
 	if err != nil {
 		setupLog.Error(err, "unable to setup controller")
 		os.Exit(1)
@@ -64,7 +65,17 @@ func main() {
 	}
 }
 
-func setupController(cfg *config.Config, b backend) (manager.Manager, error) {
+func snykAPIEndpoint() string {
+	const defaultEndpoint = "https://kubernetes-store.snyk.io"
+
+	if api := os.Getenv("SNYK_API_ENDPOINT"); api != "" {
+		return api
+	}
+
+	return defaultEndpoint
+}
+
+func setupController(cfg *config.Config, s store) (manager.Manager, error) {
 	mgr, err := ctrl.NewManager(cfg.RestConfig, ctrl.Options{
 		Scheme:                 cfg.Scheme,
 		MetricsBindAddress:     cfg.MetricsAddress,
@@ -89,8 +100,9 @@ func setupController(cfg *config.Config, b backend) (manager.Manager, error) {
 			if err := (&reconciler{
 				Reader:       mgr.GetClient(),
 				requeueAfter: cfg.Scanning.RequeueAfter.Duration,
-				backend:      b,
-				newObject:    newObjectFn(gvk),
+				store:        s,
+				gvk:          gvk,
+				orgID:        cfg.OrganizationID,
 				namespaces:   scanType.Namespaces,
 			}).SetupWithManager(mgr); err != nil {
 				return nil, fmt.Errorf("unable to create controller for GVK %v: %w", gvk, err)
@@ -108,76 +120,62 @@ func setupController(cfg *config.Config, b backend) (manager.Manager, error) {
 	return mgr, nil
 }
 
-type defaultBackend struct{}
-
-func (defaultBackend) reconcile(ctx context.Context, obj client.Object) error {
-	log := log.FromContext(ctx)
-	log.Info("reconciling resource",
-		"gvk", obj.GetObjectKind().GroupVersionKind().String(),
-		"name", obj.GetName(),
-		"namespace", obj.GetNamespace(),
-	)
-
-	return nil
-}
-func (defaultBackend) delete(ctx context.Context, nn types.NamespacedName, gvk schema.GroupVersionKind) error {
-	log := log.FromContext(ctx)
-	log.Info("deleted resource",
-		"gvk", gvk.String(),
-		"name", nn.Name,
-		"namespace", nn.Namespace,
-	)
-	return nil
-}
-
-func newObjectFn(forGVK schema.GroupVersionKind) func() client.Object {
-	return func() client.Object {
-		u := &unstructured.Unstructured{}
-		u.SetGroupVersionKind(forGVK)
-		return u
-	}
-}
-
 type reconciler struct {
 	client.Reader
 	requeueAfter time.Duration
-	// newObject should return an empty, "typed" object that needs to be reconciled.
-	// This will be used to call `client.Get` and passed through to the reconcile function.
-	newObject func() client.Object
-	backend
+	gvk          schema.GroupVersionKind
+	store
 	namespaces []string
+	orgID      string
 }
 
-type backend interface {
-	reconcile(context.Context, client.Object) error
-	delete(context.Context, types.NamespacedName, schema.GroupVersionKind) error
+type store interface {
+	// Upsert an object into the store. If the deletedAt time is non-zero, a deletion-event should
+	// be recorded. Otherwise, the store should simply ensure that the object saved in the store
+	// matches the one we're providing.
+	Upsert(ctx context.Context, obj client.Object, orgID string, deletedAt *metav1.Time) error
 }
 
 func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log := log.FromContext(ctx).WithValues(
+		"group", r.gvk.Group,
+		"version", r.gvk.Version,
+		"kind", r.gvk.Kind,
+		"name", req.Name,
+		"namespace", req.Namespace,
+	)
+	log.Info("reconciling resource")
+
 	if r.namespaces != nil && !slices.Contains(r.namespaces, req.Namespace) {
 		// don't set the requeueafter, we don't need it.
+		log.V(1).Info("skipping resources as namespace is ignored")
 		return ctrl.Result{}, nil
 	}
 
-	obj := r.newObject()
+	obj := &unstructured.Unstructured{}
+	obj.SetGroupVersionKind(r.gvk)
 	if err := r.Get(ctx, req.NamespacedName, obj); err != nil {
 		if !kerrors.IsNotFound(err) {
-			fmt.Printf("error getting object: %v\n", err)
+			log.Error(err, "could not get object from api server")
 			return ctrl.Result{}, fmt.Errorf("could not get referenced object %v: %w", req.NamespacedName, err)
 		}
 
+		obj.SetName(req.Name)
+		obj.SetNamespace(req.Namespace)
 		// don't requeue after deletion.
-		return ctrl.Result{}, r.delete(ctx, req.NamespacedName, obj.GetObjectKind().GroupVersionKind())
+		now := metav1.Now()
+		return ctrl.Result{}, r.store.Upsert(ctx, obj, r.orgID, &now)
 	}
 
-	return ctrl.Result{RequeueAfter: r.requeueAfter}, r.reconcile(ctx, obj)
+	return ctrl.Result{RequeueAfter: r.requeueAfter}, r.store.Upsert(ctx, obj, r.orgID, nil)
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	o := r.newObject()
-	fmt.Println("setting up reconciler for", o.GetObjectKind().GroupVersionKind())
+	o := &unstructured.Unstructured{}
+	o.SetGroupVersionKind(r.gvk)
+
 	return ctrl.NewControllerManagedBy(mgr).
-		For(r.newObject()).
+		For(o).
 		Complete(r)
 }
