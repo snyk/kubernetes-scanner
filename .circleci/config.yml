@@ -67,6 +67,10 @@ jobs:
       - go/mod-download
       - run:
           command: |
+            go mod tidy
+            git diff --quiet HEAD
+      - run:
+          command: |
             golangci-lint run -v --timeout=2m ./...
           environment:
             # we re-use the Go build cache as our lint-cache too.
