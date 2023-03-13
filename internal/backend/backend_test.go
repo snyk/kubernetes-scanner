@@ -36,16 +36,19 @@ func init() {
 	}
 }
 
+const testToken = "my-super-secret-token"
+
 func TestBackend(t *testing.T) {
 	const orgID = "org-123"
 	ctx := context.Background()
-	tu := testUpstream{orgID: orgID}
+	tu := testUpstream{orgID: orgID, auth: testToken}
 	ts := httptest.NewServer(http.HandlerFunc(tu.Handle))
 	defer ts.Close()
 
 	b := New("my-pet-cluster", &config.Egress{
-		HTTPClientTimeout: metav1.Duration{Duration: 1 * time.Second},
-		SnykAPIBaseURL:    ts.URL,
+		HTTPClientTimeout:       metav1.Duration{Duration: 1 * time.Second},
+		SnykAPIBaseURL:          ts.URL,
+		SnykServiceAccountToken: testToken,
 	})
 	err := b.Upsert(ctx, pod, orgID, nil)
 	require.NoError(t, err)
@@ -64,9 +67,14 @@ func TestBackend(t *testing.T) {
 type testUpstream struct {
 	orgID    string
 	deletion bool
+	auth     string
 }
 
 func (tu *testUpstream) Handle(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Authorization") != "token "+tu.auth {
+		http.Error(w, fmt.Sprintf("invalid authorization header provided: %v", r.Header.Get("Authorization")), 403)
+		return
+	}
 	matches, err := path.Match(fmt.Sprintf("*/rest/orgs/%s/kubernetesresources", tu.orgID), r.URL.Path)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("invalid path, could not match: %v", err), 400)
