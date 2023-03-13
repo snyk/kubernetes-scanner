@@ -2,62 +2,17 @@ package config
 
 import (
 	"flag"
-	"fmt"
 	"os"
 	"testing"
 	"time"
 
-	"golang.org/x/exp/slices"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/discovery/fake"
-	"k8s.io/client-go/rest"
-	k8stesting "k8s.io/client-go/testing"
-	"k8s.io/client-go/tools/clientcmd"
-	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"github.com/snyk/kubernetes-scanner/internal/test"
 )
-
-func TestConfigValid(t *testing.T) {
-	cfg := &Config{
-		Scanning: Scan{
-			Types: []ScanType{{
-				APIGroups: []string{""},
-				Versions:  []string{"v1"},
-				Resources: []string{"pods"},
-			}, {
-				APIGroups: []string{"custom-crd.snyk.io"},
-				Versions:  []string{"v1alpha2"},
-				Resources: []string{"securityconfigurations"},
-			}},
-		},
-	}
-
-	if err := cfg.validate(newFakeDiscoveryClient()); err != nil {
-		t.Errorf("validation error on config: %v", err)
-	}
-}
-
-func TestConfigInvalid(t *testing.T) {
-	cfg := &Config{
-		Scanning: Scan{
-			Types: []ScanType{{
-				APIGroups: []string{""},
-				Versions:  []string{"v1"},
-				Resources: []string{"pods"},
-			}, {
-				APIGroups: []string{"custom-crd.snyk.io"},
-				Versions:  []string{"v1beta1"},
-				Resources: []string{"securityconfigurations"},
-			}},
-		},
-	}
-
-	if err := cfg.validate(newFakeDiscoveryClient()); err == nil {
-		t.Errorf("expected validation error, did not get one")
-	}
-}
 
 func TestConfigRealAPIServer(t *testing.T) {
 	if testing.Short() {
@@ -91,37 +46,30 @@ scanning:
 			RequeueAfter: metav1.Duration{Duration: time.Minute},
 			Types: []ScanType{{
 				APIGroups: []string{""},
-				Versions:  []string{},
+				Versions:  nil,
 				Resources: []string{"pods"},
-				GVKs: []schema.GroupVersionKind{{
-					Group:   "",
-					Version: "v1",
-					Kind:    "Pod",
-				}},
 			}, {
 				APIGroups:  []string{"apps"},
 				Versions:   []string{"v1"},
 				Resources:  []string{"deployments"},
 				Namespaces: []string{"default"},
-				GVKs: []schema.GroupVersionKind{{
-					Group:   "apps",
-					Version: "v1",
-					Kind:    "Deployment",
-				}},
 			}},
 		},
 	}
+	expectedGVKs := [][]schema.GroupVersionKind{
+		{{
+			Group:   "",
+			Version: "v1",
+			Kind:    "Pod",
+		}}, {{
+			Group:   "apps",
+			Version: "v1",
+			Kind:    "Deployment",
+		}},
+	}
+
 	restCfg := test.SetupEnv(t)
-	kubeCfgFile, err := os.CreateTemp(dir, "")
-	if err != nil {
-		t.Fatalf("could not create temporary kubeconfig file for testing: %v", err)
-	}
-
-	if err := generateKubeconfig(restCfg, kubeCfgFile.Name()); err != nil {
-		t.Fatalf("could not generate kubeconfig: %v", err)
-	}
-
-	if err := flag.Set("kubeconfig", kubeCfgFile.Name()); err != nil {
+	if err := flag.Set("kubeconfig", test.GenerateKubeconfig(t, restCfg)); err != nil {
 		t.Fatalf("could not set kubeconfig flag: %v", err)
 	}
 	flag.Parse()
@@ -135,109 +83,184 @@ scanning:
 		t.Fatalf("could not read config: %v", err)
 	}
 
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("config validation error: %v", err)
+	require.Equal(t, expected.Scanning, cfg.Scanning)
+	require.Equal(t, expected.MetricsAddress, cfg.MetricsAddress)
+	require.Equal(t, expected.ProbeAddress, cfg.ProbeAddress)
+
+	d, err := cfg.Discovery()
+	if err != nil {
+		t.Fatalf("could not get discovery client: %v", err)
 	}
 
-	if err := compareConfig(expected, cfg); err != nil {
-		t.Fatalf("config differs: %v", err)
-	}
-
-	cfg.Scanning.Types = append(cfg.Scanning.Types, ScanType{
-		APIGroups: []string{"custom-crd.snyk.io"},
-		Versions:  []string{"v1beta1"},
-		Resources: []string{"securityconfigurations"},
-	})
-
-	if err := cfg.Validate(); err == nil {
-		t.Errorf("expected validation error, did not get one")
+	for i, st := range cfg.Scanning.Types {
+		gvks, err := st.GetGVKs(d, zap.New(zap.UseDevMode(true)))
+		if err != nil {
+			t.Fatalf("could not get GVKs: %v", err)
+		}
+		require.Equal(t, gvks, expectedGVKs[i])
 	}
 }
 
-func compareConfig(expected, actual *Config) error {
-	if actual.MetricsAddress != expected.MetricsAddress {
-		return fmt.Errorf("incorrect metrics address. expected=%q, got=%q", expected.MetricsAddress, actual.MetricsAddress)
-	}
-	if actual.Scanning.RequeueAfter.Duration != expected.Scanning.RequeueAfter.Duration {
-		return fmt.Errorf("incorrect requeueAfter duration. expected=%v, got=%v",
-			expected.Scanning.RequeueAfter.Duration, actual.Scanning.RequeueAfter.Duration)
-	}
-
-	if len(actual.Scanning.Types) != len(expected.Scanning.Types) {
-		return fmt.Errorf("incorrect amount of scan types. expected=%v, got=%v",
-			len(expected.Scanning.Types), len(actual.Scanning.Types))
-	}
-
-	for i, typ := range actual.Scanning.Types {
-		// TODO: should the order be relevant?
-		exp := expected.Scanning.Types[i]
-		if len(typ.GVKs) != len(exp.GVKs) {
-			return fmt.Errorf("amount of GroupVersionKinds do not match. expected=%v, got=%v",
-				len(exp.GVKs), len(typ.GVKs))
-		}
-
-		for j, gvk := range typ.GVKs {
-			expGVK := exp.GVKs[j]
-			if gvk.Group != expGVK.Group || gvk.Version != expGVK.Version || gvk.Kind != expGVK.Kind {
-				return fmt.Errorf("GVK for type %v do not match. expected=%#v, got=%#v", i, expGVK, gvk)
-			}
-		}
-
-		if !slices.Equal(typ.Namespaces, exp.Namespaces) {
-			return fmt.Errorf("namespaces do not match. expected=%v, got=%v", exp.Namespaces, typ.Namespaces)
-		}
-	}
-	return nil
-}
-
-func generateKubeconfig(restCfg *rest.Config, targetFile string) error {
-	clientConfig := clientcmdapi.Config{
-		Kind:       "Config",
-		APIVersion: "v1",
-		Clusters: map[string]*clientcmdapi.Cluster{
-			"default": {
-				Server:                   restCfg.Host,
-				CertificateAuthorityData: restCfg.CAData,
+func TestGetGVKs(t *testing.T) {
+	testTypes := map[string]struct {
+		scanType     ScanType
+		expectedGVKs []schema.GroupVersionKind
+	}{
+		"standard": {
+			scanType: ScanType{
+				APIGroups: []string{"apps", ""},
+				Versions:  []string{"v1"},
+				Resources: []string{"deployments", "pods"},
 			},
-		},
-		Contexts: map[string]*clientcmdapi.Context{
-			"default": {
-				Cluster:  "default",
-				AuthInfo: "default",
-			},
-		},
-		CurrentContext: "default",
-		AuthInfos: map[string]*clientcmdapi.AuthInfo{
-			"default": {
-				Token:                 restCfg.BearerToken,
-				ClientKeyData:         restCfg.KeyData,
-				ClientCertificateData: restCfg.CertData,
-			},
-		},
-	}
-	return clientcmd.WriteToFile(clientConfig, targetFile)
-}
-
-func newFakeDiscoveryClient() *fake.FakeDiscovery {
-	return &fake.FakeDiscovery{
-		Fake: &k8stesting.Fake{
-			Resources: []*metav1.APIResourceList{{
-				GroupVersion: "v1",
-				APIResources: []metav1.APIResource{{
-					Name:    "pods",
-					Kind:    "Pod",
-					Group:   "",
-					Version: "v1",
-				}},
+			expectedGVKs: []schema.GroupVersionKind{{
+				Group:   "apps",
+				Version: "v1",
+				Kind:    "Deployment",
 			}, {
-				GroupVersion: "custom-crd.snyk.io/v1alpha2",
-				APIResources: []metav1.APIResource{{
-					Name:    "securityconfigurations",
-					Kind:    "SecurityConfiguration",
-					Group:   "custom-crd.snyk.io",
-					Version: "v1alpha2",
-				}},
+				Group:   "",
+				Version: "v1",
+				Kind:    "Pod",
 			}},
 		},
+		"inexistent-group": {
+			scanType: ScanType{
+				APIGroups: []string{"custom-crd.io"},
+				Versions:  []string{"v1"},
+				Resources: []string{"foo"},
+			},
+			expectedGVKs: nil,
+		},
+		"multiple-versions-resource-only-in-one": {
+			scanType: ScanType{
+				APIGroups: []string{"storage.k8s.io"},
+				Versions:  []string{"v1", "v1beta1"},
+				Resources: []string{"csidrivers"},
+			},
+			expectedGVKs: []schema.GroupVersionKind{{
+				Group:   "storage.k8s.io",
+				Version: "v1",
+				Kind:    "CSIDriver",
+			}},
+		},
+		"multiple-versions-in-all-groups": {
+			scanType: ScanType{
+				APIGroups: []string{"autoscaling"},
+				Versions:  []string{"v1", "v2"},
+				Resources: []string{"horizontalpodautoscalers", "scales"},
+			},
+			expectedGVKs: []schema.GroupVersionKind{{
+				Group:   "autoscaling",
+				Version: "v1",
+				Kind:    "HorizontalPodAutoscaler",
+			}, {
+				Group:   "autoscaling",
+				Version: "v1",
+				Kind:    "Scale",
+			}, {
+				Group:   "autoscaling",
+				Version: "v2",
+				Kind:    "HorizontalPodAutoscaler",
+			}, {
+				Group:   "autoscaling",
+				Version: "v2",
+				Kind:    "Scale",
+			}},
+		},
+		"preferred-version": {
+			scanType: ScanType{
+				APIGroups: []string{"autoscaling"},
+				Versions:  nil,
+				Resources: []string{"horizontalpodautoscalers"},
+			},
+			expectedGVKs: []schema.GroupVersionKind{{
+				Group:   "autoscaling",
+				Version: "v2",
+				Kind:    "HorizontalPodAutoscaler",
+			}},
+		},
+		"wildcard-version": {
+			scanType: ScanType{
+				APIGroups: []string{"autoscaling"},
+				Versions:  []string{"*"},
+				Resources: []string{"horizontalpodautoscalers"},
+			},
+			expectedGVKs: []schema.GroupVersionKind{{
+				Group:   "autoscaling",
+				Version: "v2",
+				Kind:    "HorizontalPodAutoscaler",
+			}, {
+				Group:   "autoscaling",
+				Version: "v1",
+				Kind:    "HorizontalPodAutoscaler",
+			}},
+		},
+		"wildcard-version-inexistent-group": {
+			scanType: ScanType{
+				APIGroups: []string{"custom-crd.whatever.io"},
+				Versions:  []string{"*"},
+				Resources: []string{"mycustomresource"},
+			},
+			expectedGVKs: nil,
+		},
 	}
+	fakeLog := zap.New(zap.UseDevMode(true))
+	fakeDiscovery := &fakeDiscovery{
+		groupVersions: map[string][]string{
+			"apps":           {"v1"},
+			"":               {"v1"},
+			"storage.k8s.io": {"v1", "v1beta1"},
+			"autoscaling":    {"v2", "v1"},
+		},
+		gvrToKind: map[schema.GroupVersionResource]string{
+			{Group: "apps", Version: "v1", Resource: "deployments"}: "Deployment",
+			{Group: "", Version: "v1", Resource: "pods"}:            "Pod",
+			// this reflects reality on k8s 1.26 (and other versions): while the CSIDriver type
+			// already existed in v1beta1, it is not being served anymore since 1.22. The
+			// CSIStorageCapacity type however was served under v1beta1 until 1.27.
+			{Group: "storage.k8s.io", Version: "v1", Resource: "csidrivers"}:                "CSIDriver",
+			{Group: "storage.k8s.io", Version: "v1", Resource: "csidrivers"}:                "CSIDriver",
+			{Group: "storage.k8s.io", Version: "v1beta1", Resource: "csistoragecapacities"}: "CSIStorageCapacity",
+			{Group: "autoscaling", Version: "v1", Resource: "horizontalpodautoscalers"}:     "HorizontalPodAutoscaler",
+			{Group: "autoscaling", Version: "v2", Resource: "horizontalpodautoscalers"}:     "HorizontalPodAutoscaler",
+			{Group: "autoscaling", Version: "v1", Resource: "scales"}:                       "Scale",
+			{Group: "autoscaling", Version: "v2", Resource: "scales"}:                       "Scale",
+		},
+	}
+
+	for name, tc := range testTypes {
+		t.Run(name, func(t *testing.T) {
+			gvks, err := tc.scanType.GetGVKs(fakeDiscovery, fakeLog)
+			require.NoError(t, err)
+			require.Equal(t, tc.expectedGVKs, gvks)
+		})
+	}
+}
+
+type fakeDiscovery struct {
+	groupVersions map[string][]string
+	gvrToKind     map[schema.GroupVersionResource]string
+}
+
+func (fd *fakeDiscovery) preferredVersionForGroup(group string) (string, error) {
+	vers, err := fd.versionsForGroup(group)
+	if err != nil {
+		return "", err
+	}
+	return vers[0], nil
+}
+
+func (fd *fakeDiscovery) versionsForGroup(group string) ([]string, error) {
+	versions, ok := fd.groupVersions[group]
+	if !ok {
+		return nil, newNotFoundError(schema.GroupVersionResource{Group: group})
+	}
+	return versions, nil
+}
+
+func (fd *fakeDiscovery) findGVK(gvr schema.GroupVersionResource) (schema.GroupVersionKind, error) {
+	kind, ok := fd.gvrToKind[gvr]
+	if !ok {
+		return schema.GroupVersionKind{}, newNotFoundError(gvr)
+	}
+	return gvr.GroupVersion().WithKind(kind), nil
 }

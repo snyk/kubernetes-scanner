@@ -48,9 +48,6 @@ func TestController(t *testing.T) {
 			RequeueAfter: metav1.Duration{Duration: time.Second},
 		},
 	}
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("error validating config: %v", err)
-	}
 
 	if err := waitForAPI(ctx, c); err != nil {
 		t.Fatalf("error waiting for API: %v", err)

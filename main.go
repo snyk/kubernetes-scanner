@@ -25,11 +25,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
+var setupLog = ctrl.Log.WithName("setup")
+
 func main() {
 	var (
 		printVersion = flag.Bool("version", false, "print the version of the kubernetes-scanner and exit")
 		configFile   = flag.String("config", "/etc/kubernetes-scanner/config.yaml", "defines the location of the config file")
-		setupLog     = ctrl.Log.WithName("setup")
 		logOpts      = zap.Options{
 			Development: true,
 		}
@@ -73,8 +74,18 @@ func setupController(cfg *config.Config, b backend) (manager.Manager, error) {
 		return nil, fmt.Errorf("unable to start manager: %w", err)
 	}
 
+	discovery, err := cfg.Discovery()
+	if err != nil {
+		return nil, fmt.Errorf("unable to create discovery client: %w", err)
+	}
+
 	for _, scanType := range cfg.Scanning.Types {
-		for _, gvk := range scanType.GVKs {
+		gvks, err := scanType.GetGVKs(discovery, setupLog)
+		if err != nil {
+			return nil, fmt.Errorf("could not get GVK: %w", err)
+		}
+
+		for _, gvk := range gvks {
 			if err := (&reconciler{
 				Reader:       mgr.GetClient(),
 				requeueAfter: cfg.Scanning.RequeueAfter.Duration,
