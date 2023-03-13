@@ -52,7 +52,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	mgr, err := setupController(cfg, backend.New(snykAPIEndpoint(), "my-cluster-name"))
+	mgr, err := setupController(cfg, backend.New(cfg.ClusterName, cfg.Egress))
 	if err != nil {
 		setupLog.Error(err, "unable to setup controller")
 		os.Exit(1)
@@ -63,16 +63,6 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
-}
-
-func snykAPIEndpoint() string {
-	const defaultEndpoint = "https://kubernetes-store.snyk.io"
-
-	if api := os.Getenv("SNYK_API_ENDPOINT"); api != "" {
-		return api
-	}
-
-	return defaultEndpoint
 }
 
 func setupController(cfg *config.Config, s store) (manager.Manager, error) {

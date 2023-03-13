@@ -2,11 +2,19 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
-scanTypes:
-  - apiGroups: [""]
-    resources: ["pods"]
+# TODO: set cluster name & orgID
+#organizationID: "setme"
 
-requeueAfter: "6h"
+config:
+  clusterName: "default"
+  scanning:
+    types:
+      - apiGroups: [""]
+        resources: ["pods"]
+    requeueAfter: "6h"
+  egress:
+    httpClientTimeout: "5s"
+    snykAPIBaseURL: "https://app.dev.snyk.io"
 
 # secretName is the name of the secret containing auth credentials.
 # requires a key "snykServiceAccountToken"

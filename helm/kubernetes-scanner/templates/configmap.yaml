@@ -11,7 +11,13 @@ metadata:
 data:
   "config.yaml": |
     metricsAddress: ":{{ .Values.metrics.port }}"
+    clusterName: "{{ .Values.config.clusterName }}"
+    organizationID: {{ required "An organizationID is required!" .Values.organizationID }}
     scanning:
-      requeueAfter: {{ .Values.requeueAfter }}
+      requeueAfter: {{ .Values.config.scanning.requeueAfter }}
       types:
-        {{- toYaml .Values.scanTypes | nindent 8 }}
+        {{- toYaml .Values.config.scanning.types | nindent 8 }}
+    egress:
+      httpClientTimeout: {{ .Values.config.egress.httpClientTimeout }}
+      snykAPIBaseURL: {{ .Values.config.egress.snykAPIBaseURL }}
+

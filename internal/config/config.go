@@ -2,7 +2,9 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
+	"time"
 
 	"github.com/go-logr/logr"
 	"golang.org/x/exp/slices"
@@ -24,9 +26,56 @@ type Config struct {
 	// OrganizationID is the snyk organization ID where data should be routed to.
 	OrganizationID string `json:"organizationID"`
 
+	// Egress contains configuration for everything that's related to sending data to Snyk's
+	// backend.
+	Egress *Egress `json:"egress"`
+
+	// ClusterName should be the "friendly" name of the cluster where the scanner is running in.
+	// For example, "prod-us" or "dev-eu."
+	ClusterName string `json:"clusterName"`
+
 	Scheme     *runtime.Scheme `json:"-"`
 	RestConfig *rest.Config    `json:"-"`
 }
+
+type Egress struct {
+	// HTTPClientTimeout sets the timeout for the HTTP client that is being used for connections to
+	// the Snyk backend.
+	HTTPClientTimeout metav1.Duration `json:"httpClientTimeout"`
+
+	// SnykAPIBaseURL defines the endpoint where the scanner will send data to.
+	SnykAPIBaseURL string `json:"snykAPIBaseURL"`
+
+	// SnykServiceAccountToken is the token of the Snyk Service Account. Is not read from the config
+	// file, can only be set through the environment variable.
+	SnykServiceAccountToken string `json:"-" env:"SNYK_SERVICE_ACCOUNT_TOKEN"`
+}
+
+func (e Egress) validate() error {
+	url, err := url.Parse(e.SnykAPIBaseURL)
+	if err != nil {
+		return fmt.Errorf("could not parse Snyk API Base URL %v: %w", e.SnykAPIBaseURL, err)
+	}
+
+	if url.Scheme == "" {
+		return fmt.Errorf("Snyk API Base URL has no scheme set")
+	}
+
+	if e.SnykServiceAccountToken == "" {
+		return fmt.Errorf("no Snyk service account token set")
+	}
+
+	return nil
+}
+
+// default values for config settings
+const (
+	// HTTPClientDefaultTimeout is the default value for the HTTPClientTimeout setting.
+	HTTPClientDefaultTimeout = 5 * time.Second
+
+	// SnykAPIDefaultBaseURL is the default endpoint that the scanner will talk to.
+	SnykAPIDefaultBaseURL = "https://app.snyk.io"
+)
 
 type Scan struct {
 	Types []ScanType `json:"types"`
@@ -56,13 +105,23 @@ func Read(configFile string) (*Config, error) {
 	c := &Config{
 		Scheme:     runtime.NewScheme(),
 		RestConfig: restCfg,
+		Egress: &Egress{
+			HTTPClientTimeout:       metav1.Duration{Duration: HTTPClientDefaultTimeout},
+			SnykAPIBaseURL:          SnykAPIDefaultBaseURL,
+			SnykServiceAccountToken: os.Getenv("SNYK_SERVICE_ACCOUNT_TOKEN"),
+		},
 	}
+
 	if err := yaml.Unmarshal(b, c); err != nil {
 		return nil, fmt.Errorf("could not unmarshal config file: %w", err)
 	}
 
 	if c.OrganizationID == "" {
 		return nil, fmt.Errorf("organization ID is missing in config file")
+	}
+
+	if err := c.Egress.validate(); err != nil {
+		return nil, fmt.Errorf("could not validate egress settings: %w", err)
 	}
 
 	return c, nil

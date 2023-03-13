@@ -11,17 +11,27 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/snyk/kubernetes-scanner/internal/config"
 )
 
 type Backend struct {
 	apiEndpoint string
 	clusterName string
+
+	client *http.Client
 }
 
-func New(apiEndpoint string, clusterName string) *Backend {
+func New(clusterName string, cfg *config.Egress) *Backend {
 	return &Backend{
-		apiEndpoint: apiEndpoint,
+		apiEndpoint: cfg.SnykAPIBaseURL,
 		clusterName: clusterName,
+
+		client: &http.Client{
+			// the default transport automatically honors HTTP_PROXY settings.
+			Transport: http.DefaultTransport,
+			Timeout:   cfg.HTTPClientTimeout.Duration,
+		},
 	}
 }
 
@@ -42,9 +52,7 @@ func (b *Backend) Upsert(ctx context.Context, obj client.Object, orgID string, d
 	}
 	req.Header.Add("Content-Type", contentTypeJSON)
 
-	// the default client automatically honors HTTP_PROXY settings, see the docs for the
-	// DefaultTransport: https://pkg.go.dev/net/http#RoundTripper
-	resp, err := http.DefaultClient.Do(req.WithContext(ctx))
+	resp, err := b.client.Do(req.WithContext(ctx))
 	if err != nil {
 		return fmt.Errorf("could not post resource: %w", err)
 	}
