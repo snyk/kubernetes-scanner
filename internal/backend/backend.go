@@ -16,16 +16,18 @@ import (
 )
 
 type Backend struct {
-	apiEndpoint string
-	clusterName string
+	apiEndpoint      string
+	clusterName      string
+	authorizationKey string
 
 	client *http.Client
 }
 
 func New(clusterName string, cfg *config.Egress) *Backend {
 	return &Backend{
-		apiEndpoint: cfg.SnykAPIBaseURL,
-		clusterName: clusterName,
+		apiEndpoint:      cfg.SnykAPIBaseURL,
+		clusterName:      clusterName,
+		authorizationKey: cfg.SnykServiceAccountToken,
 
 		client: &http.Client{
 			// the default transport automatically honors HTTP_PROXY settings.
@@ -51,6 +53,7 @@ func (b *Backend) Upsert(ctx context.Context, obj client.Object, orgID string, d
 		return fmt.Errorf("could not construct request: %w", err)
 	}
 	req.Header.Add("Content-Type", contentTypeJSON)
+	req.Header.Add("Authorization", "token "+b.authorizationKey)
 
 	resp, err := b.client.Do(req.WithContext(ctx))
 	if err != nil {
