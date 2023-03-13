@@ -37,8 +37,7 @@ type Scan struct {
 }
 
 // Read reads the config file from the specificied flag "-config" and returns a
-// struct that contains all options, including other flags. It is ensured that
-// the config is valid, see the Validate method for details.
+// struct that contains all options, including other flags.
 func Read(configFile string) (*Config, error) {
 	if configFile == "" {
 		return nil, fmt.Errorf("no config file set!")
@@ -60,6 +59,10 @@ func Read(configFile string) (*Config, error) {
 	}
 	if err := yaml.Unmarshal(b, c); err != nil {
 		return nil, fmt.Errorf("could not unmarshal config file: %w", err)
+	}
+
+	if c.OrganizationID == "" {
+		return nil, fmt.Errorf("organization ID is missing in config file")
 	}
 
 	return c, nil
