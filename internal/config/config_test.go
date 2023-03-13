@@ -27,6 +27,7 @@ func TestConfigRealAPIServer(t *testing.T) {
 
 	const actualConfig = `
 metricsAddress: ":8080"
+organizationID: "some-id"
 scanning:
   requeueAfter: 1m
   types:
@@ -42,6 +43,7 @@ scanning:
 
 	expected := &Config{
 		MetricsAddress: ":8080",
+		OrganizationID: "some-id",
 		Scanning: Scan{
 			RequeueAfter: metav1.Duration{Duration: time.Minute},
 			Types: []ScanType{{
