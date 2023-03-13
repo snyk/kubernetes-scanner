@@ -18,6 +18,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/snyk/kubernetes-scanner/internal/config"
 )
 
 var timeNow time.Time
@@ -41,7 +43,10 @@ func TestBackend(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(tu.Handle))
 	defer ts.Close()
 
-	b := New(ts.URL, "my-pet-cluster")
+	b := New("my-pet-cluster", &config.Egress{
+		HTTPClientTimeout: metav1.Duration{Duration: 1 * time.Second},
+		SnykAPIBaseURL:    ts.URL,
+	})
 	err := b.Upsert(ctx, pod, orgID, nil)
 	require.NoError(t, err)
 
@@ -156,7 +161,7 @@ func (r *resource) UnmarshalJSON(data []byte) error {
 }
 
 func TestJSONMatches(t *testing.T) {
-	b := New("", "my pet cluster")
+	b := New("my pet cluster", &config.Egress{})
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "a-pod",

@@ -27,6 +27,7 @@ func TestConfigRealAPIServer(t *testing.T) {
 
 	const actualConfig = `
 metricsAddress: ":8080"
+clusterName: dev
 organizationID: "some-id"
 scanning:
   requeueAfter: 1m
@@ -39,10 +40,19 @@ scanning:
     versions: ["v1"]
     resources: ["deployments"]
     namespaces: ["default"]
+egress:
+  httpClientTimeout: 5s
+  snykAPIBaseURL: https://app.dev.snyk.io
 `
+
+	const testToken = "my-token"
+	if err := os.Setenv("SNYK_SERVICE_ACCOUNT_TOKEN", testToken); err != nil {
+		t.Fatalf("could not set env var: %v", err)
+	}
 
 	expected := &Config{
 		MetricsAddress: ":8080",
+		ClusterName:    "dev",
 		OrganizationID: "some-id",
 		Scanning: Scan{
 			RequeueAfter: metav1.Duration{Duration: time.Minute},
@@ -56,6 +66,11 @@ scanning:
 				Resources:  []string{"deployments"},
 				Namespaces: []string{"default"},
 			}},
+		},
+		Egress: &Egress{
+			SnykServiceAccountToken: testToken,
+			HTTPClientTimeout:       metav1.Duration{Duration: 5 * time.Second},
+			SnykAPIBaseURL:          "https://app.dev.snyk.io",
 		},
 	}
 	expectedGVKs := [][]schema.GroupVersionKind{
@@ -88,6 +103,7 @@ scanning:
 	require.Equal(t, expected.Scanning, cfg.Scanning)
 	require.Equal(t, expected.MetricsAddress, cfg.MetricsAddress)
 	require.Equal(t, expected.ProbeAddress, cfg.ProbeAddress)
+	require.Equal(t, expected.Egress, cfg.Egress)
 
 	d, err := cfg.Discovery()
 	if err != nil {
