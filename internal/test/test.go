@@ -1,13 +1,19 @@
 package test
 
 import (
+	"os"
 	"testing"
 	"time"
 
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 )
 
+// SetupEnv sets up a test environment, meaning a kube-apiserver and an etcd store in order to run
+// tests. This depends on "envtest" to be setup locally (e.g. for the binaries to be present), and
+// will register a cleanup hook to stop everything at the end of the test.
 func SetupEnv(t *testing.T) *rest.Config {
 	testEnv := &envtest.Environment{}
 	env, err := testEnv.Start()
@@ -23,4 +29,46 @@ func SetupEnv(t *testing.T) *rest.Config {
 	})
 
 	return env
+}
+
+// GenerateKubeconfig generates a kubeconfig in a temporary directory that will automatically be
+// cleaned up once the given testing.T test (and all of its subtests) end.
+// The returned filename includes the path of the file.
+func GenerateKubeconfig(t *testing.T, restCfg *rest.Config) (filename string) {
+	clientConfig := clientcmdapi.Config{
+		Kind:       "Config",
+		APIVersion: "v1",
+		Clusters: map[string]*clientcmdapi.Cluster{
+			"default": {
+				Server:                   restCfg.Host,
+				CertificateAuthorityData: restCfg.CAData,
+			},
+		},
+		Contexts: map[string]*clientcmdapi.Context{
+			"default": {
+				Cluster:  "default",
+				AuthInfo: "default",
+			},
+		},
+		CurrentContext: "default",
+		AuthInfos: map[string]*clientcmdapi.AuthInfo{
+			"default": {
+				Token:                 restCfg.BearerToken,
+				ClientKeyData:         restCfg.KeyData,
+				ClientCertificateData: restCfg.CertData,
+			},
+		},
+	}
+
+	// t.TempDir is automatically cleaned up after the test.
+	// We do want to make sure though that we don't clash on filenames.
+	file, err := os.CreateTemp(t.TempDir(), "")
+	if err != nil {
+		t.Fatalf("could not create temporary kubeconfig file for testing: %v", err)
+	}
+
+	if err := clientcmd.WriteToFile(clientConfig, file.Name()); err != nil {
+		t.Fatalf("could not write kubeconfig: %v", err)
+	}
+	return file.Name()
 }
