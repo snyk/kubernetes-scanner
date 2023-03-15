@@ -1,16 +1,13 @@
 version: 2.1
 orbs:
+  commitlint: conventional-changelog/commitlint@1.0.0
   go: circleci/go@1
-  slack: circleci/slack@4
   snyk: snyk/snyk@1
 
 commands:
   gcr_auth:
     description: Auth GCR
     steps:
-      - setup_remote_docker:
-          docker_layer_caching: true
-          version: 20.10.14
       - run:
           name: GCR auth
           command: echo $GCLOUD_GCR_BUILDER | docker login -u _json_key --password-stdin https://gcr.io/snyk-main
@@ -29,18 +26,20 @@ commands:
             - go-build-cache-{{ .Branch }}-{{ .Revision }}
             - go-build-cache-{{ .Branch }}-
             - go-build-cache-
-  install-helm:
+
+  build-docker-image:
     steps:
+      - setup_remote_docker:
+          docker_layer_caching: true
       - run:
-          name: Install Helm
-          command: |
-            if command -v helm &> /dev/null; then
-              echo "helm is already installed"
-              exit 0
-            fi
-            curl "https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3" > get_helm.sh
-            chmod 700 get_helm.sh
-            ./get_helm.sh
+          name: build docker image
+          command: make image
+      - snyk/scan:
+          docker-image-name: gcr.io/snyk-main/kubernetes-scanner:latest
+          target-file: Dockerfile
+          monitor-on-build: false
+          fail-on-issues: true
+          organization: snyk-apps
 
 jobs:
   "Snyk scan":
@@ -106,17 +105,35 @@ jobs:
             helm lint ./helm/*
 
   release:
-    resource_class: small
+    resource_class: medium
     docker: [image: "cimg/go:1.20"]
     steps:
       - checkout
       - gcr_auth
-      - run:
-          name: build docker image
-          command: make image
+      - build-docker-image
+      # TODO: enable once we want to push images to dockerhub. Also add the required env vars
+      # DOCKERHUB_USER and DOCKERHUB_PASSWORD to the project...probably through a context?
+      # Also remove the gcr_auth step above.
       #- run:
-      #name: push docker image
-      #command: make image-push
+      #name: docker login
+      #command: |
+      #docker login --username ${DOCKERHUB_USER} --password ${DOCKERHUB_PASSWORD}
+      - run:
+          name: push docker image
+          command: make image-push
+      - run:
+          name: push helm chart
+          command: make helm-push
+
+  semantic-release:
+    resource_class: small
+    docker:
+      - image: cimg/node:18.15
+    steps:
+      - checkout
+      - run:
+          name: Run semantic-release
+          command: make release
 
 workflows:
   "Test":
@@ -124,27 +141,47 @@ workflows:
       - "Go test and lint":
           filters:
             branches:
-              ignore: [main]
+              ignore: [main, gh-pages]
       - "Helm lint":
           filters:
             branches:
-              ignore: [main]
+              ignore: [main, gh-pages]
       - "Snyk scan":
           context: ["snyk-apps"]
           filters:
             branches:
-              ignore: [main]
+              ignore: [main, gh-pages]
+      - commitlint/lint:
+          name: Commit Lint
+          filters:
+            branches:
+              ignore: [main, gh-pages]
   "Release":
     jobs:
       - "Go test and lint":
           filters:
             branches:
               only: main
-            tags:
-              only: /^v.*/
+
+      - semantic-release:
+          name: Semantic Release
+          context:
+            - nodejs-app-release
+          requires:
+            - "Go test and lint"
+          filters:
+            branches:
+              only: main
+
       - release:
-          requires: ["Go test and lint"]
-          context: [snyk-docker-build, snyk-bot-slack]
+          context:
+            - snyk-docker-build
+            # This context contains a Personal Access Token from the snyk-deployer account.
+            # It's used to push commits & the Helm chart to the Github release. It is named
+            # "kubernetes-scanner Helm release CI" and will expire on Jan 06, 2024.
+            # To regenerate a token, login with the snyk-deployer account, create a token
+            # and add it / update the context.
+            - kubernetes-scanner-helm-release
           filters:
             branches:
               ignore: /.*/
