@@ -35,9 +35,22 @@ test:
 build:
 	$(GOBUILD) -v
 image:
-	$(DOCKER) build -t gcr.io/snyk-main/kubernetes-scanner:$(TAG) \
+	$(DOCKER) build \
+		-t gcr.io/snyk-main/kubernetes-scanner:$(TAG) \
+		-t gcr.io/snyk-main/kubernetes-scanner:latest \
 		--build-arg COMMIT_SHA='$(GIT_COMMIT)' \
 		--build-arg GIT_TAG="${CIRCLE_TAG}" \
 		.
 push-image:
-	$(DOCKER) push gcr.io/snyk-main/kubernetes-scanner:$(GIT_COMMIT)
+	$(DOCKER) push gcr.io/snyk-main/kubernetes-scanner:$(TAG)
+
+helm-push:
+	$(GOCMD) run ./build/helmreleaser -version=$(TAG) -publish=true
+
+release:
+	npx \
+		-p '@semantic-release/commit-analyzer' \
+		-p 'conventional-changelog-conventionalcommits' \
+		-p '@semantic-release/github' \
+		semantic-release
+
