@@ -41,10 +41,13 @@ image:
 		--build-arg COMMIT_SHA='$(GIT_COMMIT)' \
 		--build-arg GIT_TAG="${CIRCLE_TAG}" \
 		.
-push-image:
+image-push:
 	$(DOCKER) push gcr.io/snyk-main/kubernetes-scanner:$(TAG)
 
-helm-push:
+chart:
+	$(GOCMD) run ./build/helmreleaser -version=$(TAG) -publish=false
+
+chart-push:
 	$(GOCMD) run ./build/helmreleaser -version=$(TAG) -publish=true
 
 release:
