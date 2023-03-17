@@ -176,6 +176,7 @@ workflows:
       - release:
           context:
             - snyk-docker-build
+            - snyk-apps
             # This context contains a Personal Access Token from the snyk-deployer account.
             # It's used to push commits & the Helm chart to the Github release. It is named
             # "kubernetes-scanner Helm release CI" and will expire on Jan 06, 2024.
