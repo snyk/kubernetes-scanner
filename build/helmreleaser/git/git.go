@@ -8,6 +8,7 @@ import (
 	"time"
 
 	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
@@ -50,28 +51,21 @@ type PatchMetadata struct {
 	CommitAuthor  string
 }
 
-// CheckoutLocalRepository checks out the git directory that we're currently in.
-func CheckoutLocalRepository(branch string) (*Repository, error) {
-	return CheckoutRepository(".", branch)
-}
-
-// CheckoutRepository checks out the git repository at the given repoPath. This repoPath does not
-// need to be the root of the git repository, but can be any directory within it. Relative paths are
-// supported.
-func CheckoutRepository(repoPath string, branch string) (*Repository, error) {
-	repo, err := gogit.PlainOpenWithOptions(repoPath, &gogit.PlainOpenOptions{DetectDotGit: true})
+// CheckoutRemoteBranch checks out the git directory that we're currently in, with the given branch
+// that needs to exist on the remote. Does not creaTe a local branch!
+func CheckoutRemoteBranch(branch string) (*Repository, error) {
+	repo, err := gogit.PlainOpenWithOptions(".", &gogit.PlainOpenOptions{DetectDotGit: true})
 	if err != nil {
 		return nil, fmt.Errorf("could not open git repo: %w", err)
 	}
 
 	w, err := repo.Worktree()
 	if err != nil {
-		return nil, fmt.Errorf("could not open worktree: : %w", err)
+		return nil, fmt.Errorf("could not open worktree: %w", err)
 	}
 
 	if err := w.Checkout(&gogit.CheckoutOptions{
-		Branch: plumbing.NewBranchReferenceName(branch),
-		Keep:   true, // Keep all local modifications
+		Branch: plumbing.NewRemoteReferenceName("origin", branch),
 	}); err != nil {
 		return nil, fmt.Errorf("could not checkout gh-pages branch: %w", err)
 	}
@@ -88,36 +82,55 @@ type Repository struct {
 }
 
 type PushTarget struct {
-	RemoteName string
-	RemoteURL  string
-	AuthToken  string
+	RemoteName   string
+	RemoteBranch string
+	RemoteURL    string
+	AuthToken    string
 }
 
 type Commit struct {
 	Message string
 	Author  string
+	Email   string
 }
 
-func (r *Repository) CommitAndPush(commit *Commit, push *PushTarget, fileGlobs ...string) error {
+// CommitFiles creates a commit with the given settings, adding all fileGlobs to the changeset.
+func (r *Repository) CommitFiles(commit *Commit, fileGlobs ...string) (commitSHA string, err error) {
 	for _, file := range fileGlobs {
 		if err := r.AddGlob(file); err != nil {
-			return fmt.Errorf("could not add file / glob %v: %w", file, err)
+			return "", fmt.Errorf("could not add file / glob %v: %w", file, err)
 		}
 	}
 
-	if _, err := r.Commit(commit.Message, &gogit.CommitOptions{
+	c, err := r.Worktree.Commit(commit.Message, &gogit.CommitOptions{
 		Author: &object.Signature{
-			Name: commit.Author,
-			When: time.Now(),
+			Name:  commit.Author,
+			Email: commit.Email,
+			When:  time.Now(),
 		},
-	}); err != nil {
-		return fmt.Errorf("could not commit changes: %w", err)
+	})
+	if err != nil {
+		return "", fmt.Errorf("could not commit changes: %w", err)
+	}
+	return c.String(), nil
+}
+
+// Push the given commit SHA or Branch name to the push target.
+// If push.RemoteBranch is set, the given commitOrBranch will be pushed to
+// that branch, else it will be pushed to the commitOrBrach (untested).
+func (r *Repository) Push(commitOrBranch string, push *PushTarget) error {
+	target := commitOrBranch
+	if push.RemoteBranch != "" {
+		target = push.RemoteBranch
 	}
 
-	if err := r.Push(&gogit.PushOptions{
+	if err := r.Repository.Push(&gogit.PushOptions{
 		RemoteName: push.RemoteName,
 		RemoteURL:  push.RemoteURL,
 		Progress:   os.Stdout,
+		RefSpecs: []config.RefSpec{
+			config.RefSpec(fmt.Sprintf("%s:refs/heads/%s", commitOrBranch, target)),
+		},
 		Auth: &http.BasicAuth{
 			Username: "PAT",
 			Password: push.AuthToken,
@@ -125,5 +138,6 @@ func (r *Repository) CommitAndPush(commit *Commit, push *PushTarget, fileGlobs .
 	}); err != nil {
 		return fmt.Errorf("error pushing changes: %w", err)
 	}
+
 	return nil
 }

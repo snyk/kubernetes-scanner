@@ -69,7 +69,7 @@ func publish(chart *helm.PackagedChart, gitRepoUser, gitRepoName string) error {
 	}
 	uploadedChart := chart.UploadedTo(url)
 
-	repo, err := git.CheckoutLocalRepository("gh-pages")
+	repo, err := git.CheckoutRemoteBranch("gh-pages")
 	if err != nil {
 		return fmt.Errorf("could not checkout gh-pages branch of repo: %w", err)
 	}
@@ -78,16 +78,22 @@ func publish(chart *helm.PackagedChart, gitRepoUser, gitRepoName string) error {
 		return fmt.Errorf("could not patch index.yaml: %w", err)
 	}
 
-	if err := repo.CommitAndPush(
-		&git.Commit{Author: "Chart Release Bot", Message: "new chart release"},
-		&git.PushTarget{
-			RemoteName: "origin",
-			RemoteURL:  gh.RepoURL(),
-			AuthToken:  token,
-		},
-		"index.yaml",
-	); err != nil {
-		return fmt.Errorf("could not commit and push changes to index.yaml: %w", err)
+	commit, err := repo.CommitFiles(&git.Commit{
+		Author:  "Chart Release Bot",
+		Message: "[skip ci] new chart release",
+		Email:   "deploy@snyk.io",
+	}, "index.yaml")
+	if err != nil {
+		return fmt.Errorf("could not commit changes to index.yaml: %w", err)
+	}
+
+	if err := repo.Push(commit, &git.PushTarget{
+		RemoteName:   "origin",
+		RemoteBranch: "gh-pages",
+		RemoteURL:    gh.RepoURL(),
+		AuthToken:    token,
+	}); err != nil {
+		return fmt.Errorf("could not push commit %v to remote: %w", commit, err)
 	}
 
 	return nil
