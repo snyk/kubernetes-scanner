@@ -166,7 +166,7 @@ workflows:
       - semantic-release:
           name: Semantic Release
           context:
-            - nodejs-app-release
+            - kubernetes-scanner-helm-release
           requires:
             - "Go test and lint"
           filters:
