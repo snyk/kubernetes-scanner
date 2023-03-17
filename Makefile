@@ -1,13 +1,13 @@
 SHELL := /bin/bash
 
 ifeq ($(CIRCLE_SHA1),)
-	GIT_COMMIT := $(shell git rev-parse --verify HEAD)
+	GIT_COMMIT := $(shell git rev-parse --verify --short HEAD)
 else 
 	GIT_COMMIT := $(CIRCLE_SHA1)
 endif
 
 ifeq ($(CIRCLE_TAG),)
-	TAG := $(GIT_COMMIT)
+	TAG := v0.0.0-$(GIT_COMMIT)
 else
 	TAG := $(CIRCLE_TAG)
 endif
