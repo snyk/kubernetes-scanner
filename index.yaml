@@ -1,4 +1,12 @@
 apiVersion: v1
 entries:
-  kubernetes-scanner: []
-generated: 2023-03-15T16:13:20.499029981Z
+  kubernetes-scanner:
+  - apiVersion: v1
+    created: "2023-03-17T14:03:02.342225+01:00"
+    description: kubernetes-scanner Chart
+    digest: 88b809ecd755e92bfe4e828f239bde0d48c50dc5b3d19dbe3e783da1d2227a78
+    name: kubernetes-scanner
+    urls:
+    - https://github.com/snyk/kubernetes-scanner/releases/download/v0.1.1-alpha3/kubernetes-scanner
+    version: v0.1.1-alpha3
+generated: "2023-03-17T14:03:02.342226+01:00"
