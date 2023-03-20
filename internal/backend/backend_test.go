@@ -75,7 +75,7 @@ func (tu *testUpstream) Handle(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("invalid authorization header provided: %v", r.Header.Get("Authorization")), 403)
 		return
 	}
-	matches, err := path.Match(fmt.Sprintf("*/rest/orgs/%s/kubernetesresources", tu.orgID), r.URL.Path)
+	matches, err := path.Match(fmt.Sprintf("*/hidden/orgs/%s/kubernetes_resources", tu.orgID), r.URL.Path)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("invalid path, could not match: %v", err), 400)
 		return
