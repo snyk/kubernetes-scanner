@@ -45,7 +45,7 @@ func (b *Backend) Upsert(ctx context.Context, obj client.Object, orgID string, d
 		return fmt.Errorf("could not construct request body: %w", err)
 	}
 
-	endpoint := fmt.Sprintf("%s/rest/orgs/%s/kubernetesresources?version=2023-02-20~experimental",
+	endpoint := fmt.Sprintf("%s/hidden/orgs/%s/kubernetes_resources?version=2023-02-20~experimental",
 		b.apiEndpoint, orgID)
 
 	req, err := http.NewRequest(http.MethodPost, endpoint, body)
