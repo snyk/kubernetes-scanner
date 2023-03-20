@@ -65,5 +65,5 @@ func (rc *RepositoryClient) UploadToRelease(ctx context.Context, releaseTag stri
 		return "", fmt.Errorf("could not upload asset: %v", err)
 	}
 
-	return *asset.URL, nil
+	return *asset.BrowserDownloadURL, nil
 }
