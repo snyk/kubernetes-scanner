@@ -63,7 +63,7 @@ func publish(chart *helm.PackagedChart, gitRepoUser, gitRepoName string) error {
 	}
 
 	gh := github.New(ctx, token, gitRepoUser, gitRepoName)
-	url, err := gh.UploadToRelease(ctx, chart.Version(), chart)
+	url, err := gh.UploadToRelease(ctx, chart.Version, chart)
 	if err != nil {
 		return fmt.Errorf("could not upload chart to Github: %w", err)
 	}

@@ -42,7 +42,6 @@ func (rc *RepositoryClient) RepoURL() string {
 
 // An Artifact has a Name and is backed by a File.
 type Artifact interface {
-	Name() string
 	OpenFile() (*os.File, error)
 }
 
@@ -60,7 +59,7 @@ func (rc *RepositoryClient) UploadToRelease(ctx context.Context, releaseTag stri
 	}
 
 	asset, _, err := rc.client.UploadReleaseAsset(ctx, rc.repoOwner, rc.repoName, *release.ID,
-		&github.UploadOptions{Name: artifact.Name()}, af)
+		&github.UploadOptions{Name: path.Base(af.Name())}, af)
 	if err != nil {
 		return "", fmt.Errorf("could not upload asset: %v", err)
 	}
