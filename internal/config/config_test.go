@@ -46,9 +46,7 @@ egress:
 `
 
 	const testToken = "my-token"
-	if err := os.Setenv("SNYK_SERVICE_ACCOUNT_TOKEN", testToken); err != nil {
-		t.Fatalf("could not set env var: %v", err)
-	}
+	t.Setenv("SNYK_SERVICE_ACCOUNT_TOKEN", testToken)
 
 	expected := &Config{
 		MetricsAddress: ":8080",
