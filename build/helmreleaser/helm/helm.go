@@ -15,8 +15,8 @@ import (
 )
 
 type PackagedChart struct {
-	name    string
-	version string
+	Name    string
+	Version string
 	File    string
 }
 
@@ -37,14 +37,12 @@ func PackageChart(name string, version string, path string) (*PackagedChart, err
 	}
 
 	return &PackagedChart{
-		name:    name,
-		version: version,
+		Name:    name,
+		Version: version,
 		File:    file,
 	}, nil
 }
 
-func (ch *PackagedChart) Name() string                { return ch.name }
-func (ch *PackagedChart) Version() string             { return ch.version }
 func (ch *PackagedChart) OpenFile() (*os.File, error) { return os.Open(ch.File) }
 
 func (ch *PackagedChart) UploadedTo(urls ...string) *UploadedChart {
@@ -61,9 +59,9 @@ type UploadedChart struct {
 
 func (ch *PackagedChart) Metadata() *helmchart.Metadata {
 	return &helmchart.Metadata{
-		Name:        ch.name,
-		Version:     ch.version,
-		Description: ch.name + " Chart",
+		Name:        ch.Name,
+		Version:     ch.Version,
+		Description: ch.Name + " Chart",
 		APIVersion:  chart.APIVersionV1,
 	}
 }
@@ -102,7 +100,7 @@ func UpdateIndexYAML(indexFile FileOverwriter, charts ...*UploadedChart) error {
 			return fmt.Errorf("error validating chart metadata: %w", err)
 		}
 
-		index.Entries[ch.name] = append(index.Entries[ch.name], &helmrepo.ChartVersion{
+		index.Entries[ch.Name] = append(index.Entries[ch.Name], &helmrepo.ChartVersion{
 			URLs:     ch.URLs,
 			Metadata: md,
 			Digest:   digest,
