@@ -26,7 +26,95 @@ config:
   scanning:
     types:
       - apiGroups: [""]
-        resources: ["pods"]
+        resources:
+          - pods
+          - services
+          - namespaces
+          - replicationcontrollers
+          - nodes
+          - configmaps
+      - apiGroups: ["rbac.authorization.k8s.io"]
+        resources:
+          - clusterroles
+          - roles
+          - clusterrolebindings
+          - rolebindings
+      - apiGroups: ["batch"]
+        resources:
+          - cronjobs
+          - jobs
+      - apiGroups: ["apps"]
+        resources:
+          - replicasets
+          - daemonsets
+          - deployments
+          - statefulsets
+      - apiGroups: ["networking.k8s.io"]
+        resources:
+          - ingresses
+      - apiGroups: ["apps.openshift.io"]
+        resources:
+          - deploymentconfigs
+      - apiGroups: ["argoproj.io"]
+        resources:
+          - rollouts
+      - apiGroups: ["gateway.solo.io"]
+        resources:
+          - gateways
+          - httpgateways
+          - routeoptions
+          - routetables
+          - virtualhostoptions
+          - virtualservices
+      - apiGroups: ["getambassador.io"]
+        resources:
+          - consulresolvers
+          - devportals
+          - hosts
+          - kubernetesendpointresolvers
+          - kubernetesserviceresolvers
+          - listeners
+          - logservices
+          - mappings
+          - modules
+          - ratelimitservices
+          - tcpmappings
+          - tracingservices
+      - apiGroups: ["gloo.solo.io"]
+        resources:
+          - proxies
+          - upstreamgroups
+          - upstreams
+      - apiGroups: ["graphql.gloo.solo.io"]
+        resources:
+          - graphqlschemas
+      - apiGroups: ["install.istio.io"]
+        resources:
+          - istiooperators
+      - apiGroups: ["networking.gke.io"]
+        resources:
+          - managedcertificates
+          - serviceattachments
+          - frontendconfigs
+          - servicenetworkendpointgroups
+      - apiGroups: ["networking.istio.io"]
+        resources:
+          - destinationrules
+          - envoyfilters
+          - gateways
+          - serviceentries
+          - sidecars
+          - virtualservices
+          - workloadentries
+          - workloadgroups
+      - apiGroups: ["ratelimit.solo.io"]
+        resources:
+          - ratelimitconfigs
+      - apiGroups: ["security.istio.io"]
+        resources:
+          - authorizationpolicies
+          - peerauthentications
+          - requestauthentications
     requeueAfter: "6h"
   egress:
     httpClientTimeout: "5s"
