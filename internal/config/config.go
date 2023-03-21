@@ -204,7 +204,7 @@ func (st ScanType) getVersions(group string, d Discovery) ([]string, error) {
 	case len(st.Versions) == 0:
 		version, err := d.preferredVersionForGroup(group)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("could not get preferred version for group %v: %w", group, err)
 		}
 		return []string{version}, nil
 
@@ -257,7 +257,7 @@ func (d *discoveryHelper) preferredVersionForGroup(apiGroup string) (string, err
 			return group.PreferredVersion.Version, nil
 		}
 	}
-	return "", fmt.Errorf("group %v does not exist", apiGroup)
+	return "", newNotFoundError(schema.GroupVersionResource{Group: apiGroup})
 }
 func (d *discoveryHelper) versionsForGroup(apiGroup string) ([]string, error) {
 	for _, group := range d.groups {
