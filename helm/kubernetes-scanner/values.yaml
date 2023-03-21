@@ -22,10 +22,22 @@
 #organizationID: "setme"
 
 config:
+  # clusterName is a friendly name for the cluster that this agent is running
+  # on. For example "prod-us" or "dev-eu".
   clusterName: "default"
   scanning:
+    # define all types that will be scanned on your cluster. This part will be
+    # used to generate the config for the scanner, as well as the RBAC
+    # ClusterRole for it.
+    # The scanner will combine all apiGroups x resources, and will scan for all
+    # existing combinations. If a combination should not exist, it will be
+    # skipped.
+    # The types configuration is similar to an RBAC `Role` definition, but
+    # includes some additional fields.
     types:
+      # A list of APIGroups where the below resources are in.
       - apiGroups: [""]
+        # a list of resource types to scan.
         resources:
           - pods
           - services
@@ -33,6 +45,14 @@ config:
           - replicationcontrollers
           - nodes
           - configmaps
+        # a list of API versions that should be scanned. If unset, the
+        # APIServer's "preferredVersion" will be used. Can also specify
+        # multiple to scan for multiple versions at once.
+        versions: ["v1"]
+        # an empty list (or not defining this key at all) does not limit
+        # scanning to any namespace. E.g. "namespaces: ["default"]" would limit
+        # the scanner to only scan for pods in the default namespace.
+        namespaces: []
       - apiGroups: ["rbac.authorization.k8s.io"]
         resources:
           - clusterroles
@@ -121,7 +141,8 @@ config:
     snykAPIBaseURL: "https://app.dev.snyk.io"
 
 # secretName is the name of the secret containing auth credentials.
-# requires a key "snykServiceAccountToken"
+# requires a key "snykServiceAccountToken". You can find more information on
+# Snyk service accounts at https://docs.snyk.io/snyk-admin/service-accounts.
 secretName: ""
 
 image:
