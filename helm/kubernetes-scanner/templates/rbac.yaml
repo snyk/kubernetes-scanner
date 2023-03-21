@@ -18,12 +18,12 @@ kind: ClusterRole
 metadata:
   name: {{ include "kubernetes-scanner.fullname" . }}
 rules:
-  {{- range .Values.scanTypes }}
+  {{- range .Values.config.scanning.types }}
   - verbs: ["watch", "list", "get"]
     apiGroups: 
-      {{ toYaml .apiGroups }}
+      {{- toYaml .apiGroups | nindent 6}}
     resources: 
-      {{ toYaml .resources }}
+      {{- toYaml .resources | nindent 6}}
   {{- end }}
 
 ---
