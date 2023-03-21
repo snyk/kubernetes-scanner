@@ -122,7 +122,7 @@ config:
 
 # secretName is the name of the secret containing auth credentials.
 # requires a key "snykServiceAccountToken"
-secretName: "setme"
+secretName: ""
 
 image:
   repository: snyk/kubernetes-scanner
