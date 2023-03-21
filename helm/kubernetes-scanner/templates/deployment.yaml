@@ -52,7 +52,7 @@ spec:
             - name: SNYK_SERVICE_ACCOUNT_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.secretName }}
+                  name: {{ required "A secretName is required!" .Values.secretName }}
                   key: "snykServiceAccountToken"
           ports:
             - name: health
