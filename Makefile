@@ -43,6 +43,8 @@ tidy:
 	$(GOMOD) tidy -v
 generate:
 	$(GOGENERATE) ./...
+generate-licenses:
+	go run github.com/google/go-licenses@latest save . --save_path=./licenses --force
 test:
 	$(GOTEST) ./... 
 build:
