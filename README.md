@@ -49,3 +49,8 @@ setup-envtest use -p env | source
 
 For more information on `setup-envtest`, we refer to
 [their documentation](https://pkg.go.dev/sigs.k8s.io/controller-runtime/tools/setup-envtest#section-readme).
+
+## Architecture
+
+For an overview of the architecture of kubernetes-scanner, please see the
+[architecture document](./docs/architecture.md)

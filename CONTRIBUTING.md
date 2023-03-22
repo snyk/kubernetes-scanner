@@ -1,25 +1,14 @@
 # Contributing to `kubernetes-scanner`
 
-## Architecture & Code Structure
-
-`kubernetes-scanner` is based on `controller-runtime`, which is configured to
-dynamically watch resources based on the `unstructured.Unstructured` type
-configured with dynamic GroupVersionKinds (GVK).
-
-The controller's core logic can be found in the `main.go` file in the root of
-the repository. It handles the setup of the controller, as well as implementing
-the main `Reconcile` function. That `Reconcile` function is responsible for
-populating the `unstructured.Unstructured` object, and passed that to the
-backend store, located in `internal/backend`.
-
-That backend sends resources to Snyk's API, ensuring that they're up to date.
-
 ## Proposing Changes
 
 We're happy to have you contributing code to `kubernetes-scanner`! However,
 please open an issue to discuss your proposed changes first.
 
 For simple bug fixes feel free to open a PR directly.
+
+Additionally, please have a read through our [Architecture
+Document](./docs/architecture.md).
 
 ## Commits
 
