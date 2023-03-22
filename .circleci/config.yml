@@ -53,6 +53,18 @@ jobs:
           monitor-on-build: false # ?
           organization: snyk-apps
 
+  "Check licenses":
+    resource_class: small
+    executor:
+      name: go/default
+      tag: "1.20"
+    steps:
+      - checkout
+      - run:
+          command: |
+            make generate-licenses
+            git diff --quiet HEAD
+
   "Go test and lint":
     resource_class: medium
     executor:
@@ -143,6 +155,10 @@ workflows:
             branches:
               ignore: [main, gh-pages]
       - "Helm lint":
+          filters:
+            branches:
+              ignore: [main, gh-pages]
+      - "Check licenses":
           filters:
             branches:
               ignore: [main, gh-pages]
