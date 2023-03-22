@@ -233,14 +233,38 @@ func TestGetGVKs(t *testing.T) {
 			},
 			expectedGVKs: nil,
 		},
+		"preferred-version-with-fallback-for-inexisting-resources": {
+			scanType: ScanType{
+				APIGroups: []string{"networking.gke.io"},
+				Versions:  nil,
+				// serviceattachments exist in both v1 & v1beta1, but we only want to use the
+				// preferredVersion for these, which is v1.
+				// frontendconfigs only exist in v1beta1, managedcertificates only in v1.
+				Resources: []string{"serviceattachments", "frontendconfigs", "managedcertificates"},
+			},
+			expectedGVKs: []schema.GroupVersionKind{{
+				Group:   "networking.gke.io",
+				Version: "v1",
+				Kind:    "ServiceAttachment",
+			}, {
+				Group:   "networking.gke.io",
+				Version: "v1beta1",
+				Kind:    "FrontendConfig",
+			}, {
+				Group:   "networking.gke.io",
+				Version: "v1",
+				Kind:    "ManagedCertificate",
+			}},
+		},
 	}
 	fakeLog := zap.New(zap.UseDevMode(true))
 	fakeDiscovery := &fakeDiscovery{
 		groupVersions: map[string][]string{
-			"apps":           {"v1"},
-			"":               {"v1"},
-			"storage.k8s.io": {"v1", "v1beta1"},
-			"autoscaling":    {"v2", "v1"},
+			"apps":              {"v1"},
+			"":                  {"v1"},
+			"storage.k8s.io":    {"v1", "v1beta1"},
+			"autoscaling":       {"v2", "v1"},
+			"networking.gke.io": {"v1", "v1beta1"},
 		},
 		gvrToKind: map[schema.GroupVersionResource]string{
 			{Group: "apps", Version: "v1", Resource: "deployments"}: "Deployment",
@@ -255,6 +279,17 @@ func TestGetGVKs(t *testing.T) {
 			{Group: "autoscaling", Version: "v2", Resource: "horizontalpodautoscalers"}:     "HorizontalPodAutoscaler",
 			{Group: "autoscaling", Version: "v1", Resource: "scales"}:                       "Scale",
 			{Group: "autoscaling", Version: "v2", Resource: "scales"}:                       "Scale",
+			// this is *mostly* reality. On GKE, there's networking CRDs where some resource types
+			// are only registered at a specific API Version. The preferredVersion for these APIs is
+			// v1, but not all resources exist in v1.
+			{Group: "networking.gke.io", Version: "v1beta1", Resource: "frontendconfigs"}:              "FrontendConfig",
+			{Group: "networking.gke.io", Version: "v1beta1", Resource: "servicenetworkendpointgroups"}: "ServiceNetworkEndpointGroup",
+			// serviceattachments only exist in v1 on an actual GKE cluster, but we want to make
+			// sure that even if it would exist in multiple versions, we'd only select the
+			// preferredVersion.
+			{Group: "networking.gke.io", Version: "v1beta1", Resource: "serviceattachments"}: "ServiceAttachment",
+			{Group: "networking.gke.io", Version: "v1", Resource: "managedcertificates"}:     "ManagedCertificate",
+			{Group: "networking.gke.io", Version: "v1", Resource: "serviceattachments"}:      "ServiceAttachment",
 		},
 	}
 
@@ -262,7 +297,7 @@ func TestGetGVKs(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			gvks, err := tc.scanType.GetGVKs(fakeDiscovery, fakeLog)
 			require.NoError(t, err)
-			require.Equal(t, tc.expectedGVKs, gvks)
+			require.ElementsMatch(t, tc.expectedGVKs, gvks)
 		})
 	}
 }
@@ -270,14 +305,6 @@ func TestGetGVKs(t *testing.T) {
 type fakeDiscovery struct {
 	groupVersions map[string][]string
 	gvrToKind     map[schema.GroupVersionResource]string
-}
-
-func (fd *fakeDiscovery) preferredVersionForGroup(group string) (string, error) {
-	vers, err := fd.versionsForGroup(group)
-	if err != nil {
-		return "", err
-	}
-	return vers[0], nil
 }
 
 func (fd *fakeDiscovery) versionsForGroup(group string) ([]string, error) {

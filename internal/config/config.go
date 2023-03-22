@@ -143,7 +143,8 @@ func Read(configFile string) (*Config, error) {
 }
 
 type Discovery interface {
-	preferredVersionForGroup(string) (string, error)
+	// versionsForGroup should return all versions for a given group, where the first version should
+	// be the preferredVersion.
 	versionsForGroup(string) ([]string, error)
 	findGVK(schema.GroupVersionResource) (schema.GroupVersionKind, error)
 }
@@ -164,18 +165,23 @@ type ScanType struct {
 func (st ScanType) GetGVKs(d Discovery, log logr.Logger) ([]schema.GroupVersionKind, error) {
 	var gvks []schema.GroupVersionKind
 	for _, group := range st.APIGroups {
-		versions, err := st.getVersions(group, d)
-		if err != nil {
-			if !k8serrors.IsNotFound(err) {
-				return nil, fmt.Errorf("could not get versions for group %v: %w", group, err)
-			}
+		versions := st.Versions
+		if slices.Contains(versions, "*") || len(versions) == 0 {
+			var err error
+			versions, err = d.versionsForGroup(group)
+			if err != nil {
+				if !k8serrors.IsNotFound(err) {
+					return nil, fmt.Errorf("could not get versions for group %v: %w", group, err)
+				}
 
-			log.Info("skipping group as it does not exist", "group", group)
-			continue
+				log.Info("skipping group as it does not exist", "group", group)
+				continue
+			}
 		}
 
-		for _, version := range versions {
-			for _, resource := range st.Resources {
+	nextResource:
+		for _, resource := range st.Resources {
+			for _, version := range versions {
 				gvr := schema.GroupVersionResource{
 					Group:    group,
 					Version:  version,
@@ -189,31 +195,24 @@ func (st ScanType) GetGVKs(d Discovery, log logr.Logger) ([]schema.GroupVersionK
 
 					log.Info("skipping GVR as resource does not exist within groupversion",
 						"group", group, "resource", resource, "version", version)
+					// try finding this resource type in another version of this group.
 					continue
 				}
 				gvks = append(gvks, gvk)
+
+				// if no versions where initially specified, we're looking for a single
+				// GroupVersionResource combination. Usually, the version in that should be the
+				// APIServer's preferredVersion. However, as the preferredVersion might not always
+				// contain all specified resource types, we can only continue with the nextResource
+				// once we've found the resource in a version.
+				if len(st.Versions) == 0 {
+					continue nextResource
+				}
 			}
 		}
 	}
 
 	return gvks, nil
-}
-
-func (st ScanType) getVersions(group string, d Discovery) ([]string, error) {
-	switch {
-	case len(st.Versions) == 0:
-		version, err := d.preferredVersionForGroup(group)
-		if err != nil {
-			return nil, fmt.Errorf("could not get preferred version for group %v: %w", group, err)
-		}
-		return []string{version}, nil
-
-	case slices.Contains(st.Versions, "*"):
-		return d.versionsForGroup(group)
-
-	default:
-		return st.Versions, nil
-	}
 }
 
 func (c *Config) Discovery() (Discovery, error) {
@@ -251,20 +250,15 @@ func newDiscoveryHelper(discoveryClient k8sdiscovery.DiscoveryInterface) (*disco
 	}, nil
 }
 
-func (d *discoveryHelper) preferredVersionForGroup(apiGroup string) (string, error) {
-	for _, group := range d.groups {
-		if group.Name == apiGroup {
-			return group.PreferredVersion.Version, nil
-		}
-	}
-	return "", newNotFoundError(schema.GroupVersionResource{Group: apiGroup})
-}
 func (d *discoveryHelper) versionsForGroup(apiGroup string) ([]string, error) {
 	for _, group := range d.groups {
 		if group.Name == apiGroup {
-			var versions []string
+			// we always want to build a slice with the preferredVersion *first*.
+			var versions = []string{group.PreferredVersion.Version}
 			for _, ver := range group.Versions {
-				versions = append(versions, ver.Version)
+				if !slices.Contains(versions, ver.Version) {
+					versions = append(versions, ver.Version)
+				}
 			}
 			return versions, nil
 		}
