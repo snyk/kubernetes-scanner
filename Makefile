@@ -44,7 +44,7 @@ tidy:
 generate:
 	$(GOGENERATE) ./...
 generate-licenses:
-	go run github.com/google/go-licenses@latest save . --save_path=./licenses --force
+	go run github.com/google/go-licenses@latest save . --save_path=./licenses/files --force
 test:
 	$(GOTEST) ./... 
 build:

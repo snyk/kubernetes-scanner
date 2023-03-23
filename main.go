@@ -26,6 +26,7 @@ import (
 	"github.com/snyk/kubernetes-scanner/build"
 	"github.com/snyk/kubernetes-scanner/internal/backend"
 	"github.com/snyk/kubernetes-scanner/internal/config"
+	"github.com/snyk/kubernetes-scanner/licenses"
 
 	"golang.org/x/exp/slices"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
@@ -47,6 +48,7 @@ func main() {
 	var (
 		printVersion = flag.Bool("version", false, "print the version of the kubernetes-scanner and exit")
 		configFile   = flag.String("config", "/etc/kubernetes-scanner/config.yaml", "defines the location of the config file")
+		showLicenses = flag.Bool("licenses", false, "show license information")
 		logOpts      = zap.Options{
 			Development: true,
 		}
@@ -59,6 +61,9 @@ func main() {
 	if *printVersion {
 		fmt.Println(build.Version())
 		os.Exit(0)
+	}
+	if *showLicenses {
+		os.Exit(licenses.Print())
 	}
 
 	cfg, err := config.Read(*configFile)
