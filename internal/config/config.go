@@ -263,7 +263,7 @@ func (d *discoveryHelper) versionsForGroup(apiGroup string) ([]string, error) {
 			return versions, nil
 		}
 	}
-	return nil, fmt.Errorf("group %v does not exist", apiGroup)
+	return nil, newNotFoundError(schema.GroupVersionResource{Group: apiGroup})
 }
 
 // findGVK returns the GroupVersionKind for the given GVR.
