@@ -51,13 +51,13 @@ build:
 	$(GOBUILD) -v
 image:
 	$(DOCKER) build \
-		-t gcr.io/snyk-main/kubernetes-scanner:$(TAG) \
-		-t gcr.io/snyk-main/kubernetes-scanner:latest \
+		-t snyk/kubernetes-scanner:$(TAG) \
+		-t snyk/kubernetes-scanner:latest \
 		--build-arg COMMIT_SHA='$(GIT_COMMIT)' \
 		--build-arg GIT_TAG="${CIRCLE_TAG}" \
 		.
 image-push:
-	$(DOCKER) push gcr.io/snyk-main/kubernetes-scanner:$(TAG)
+	$(DOCKER) push -a snyk/kubernetes-scanner:$(TAG)
 
 chart:
 	$(GOCMD) run ./build/helmreleaser -version=$(TAG) -publish=false
