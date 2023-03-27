@@ -32,7 +32,6 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -133,7 +132,7 @@ func setupController(cfg *config.Config, s store) (manager.Manager, error) {
 type reconciler struct {
 	client.Reader
 	requeueAfter time.Duration
-	gvk          schema.GroupVersionKind
+	gvk          config.GroupVersionKind
 	store
 	namespaces []string
 	orgID      string
@@ -143,7 +142,7 @@ type store interface {
 	// Upsert an object into the store. If the deletedAt time is non-zero, a deletion-event should
 	// be recorded. Otherwise, the store should simply ensure that the object saved in the store
 	// matches the one we're providing.
-	Upsert(ctx context.Context, obj client.Object, orgID string, deletedAt *metav1.Time) error
+	Upsert(ctx context.Context, obj client.Object, preferredVersion, orgID string, deletedAt *metav1.Time) error
 }
 
 func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -163,7 +162,7 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	obj := &unstructured.Unstructured{}
-	obj.SetGroupVersionKind(r.gvk)
+	obj.SetGroupVersionKind(r.gvk.GroupVersionKind)
 	if err := r.Get(ctx, req.NamespacedName, obj); err != nil {
 		if !kerrors.IsNotFound(err) {
 			log.Error(err, "could not get object from api server")
@@ -174,16 +173,16 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		obj.SetNamespace(req.Namespace)
 		// don't requeue after deletion.
 		now := metav1.Now()
-		return ctrl.Result{}, r.store.Upsert(ctx, obj, r.orgID, &now)
+		return ctrl.Result{}, r.store.Upsert(ctx, obj, r.gvk.PreferredVersion, r.orgID, &now)
 	}
 
-	return ctrl.Result{RequeueAfter: r.requeueAfter}, r.store.Upsert(ctx, obj, r.orgID, nil)
+	return ctrl.Result{RequeueAfter: r.requeueAfter}, r.store.Upsert(ctx, obj, r.gvk.PreferredVersion, r.orgID, nil)
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	o := &unstructured.Unstructured{}
-	o.SetGroupVersionKind(r.gvk)
+	o.SetGroupVersionKind(r.gvk.GroupVersionKind)
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(o).

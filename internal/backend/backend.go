@@ -54,8 +54,8 @@ func New(clusterName string, cfg *config.Egress) *Backend {
 
 const contentTypeJSON = "application/vnd.api+json"
 
-func (b *Backend) Upsert(ctx context.Context, obj client.Object, orgID string, deletedAt *metav1.Time) error {
-	body, err := b.newPostBody(obj, deletedAt)
+func (b *Backend) Upsert(ctx context.Context, obj client.Object, preferredVersion string, orgID string, deletedAt *metav1.Time) error {
+	body, err := b.newPostBody(obj, preferredVersion, deletedAt)
 	if err != nil {
 		return fmt.Errorf("could not construct request body: %w", err)
 	}
@@ -89,16 +89,17 @@ func (b *Backend) Upsert(ctx context.Context, obj client.Object, orgID string, d
 // for testing.
 var now = time.Now
 
-func (b *Backend) newPostBody(obj client.Object, deletedAt *metav1.Time) (io.Reader, error) {
+func (b *Backend) newPostBody(obj client.Object, preferredVersion string, deletedAt *metav1.Time) (io.Reader, error) {
 	r := &request{
 		Data: requestData{
 			Type: "kubernetesresource",
 			Attributes: requestAttributes{
 				ClusterName: b.clusterName,
 				Resources: []resource{{
-					ScannedAt:    metav1.Time{Time: now()},
-					ManifestBlob: obj,
-					DeletedAt:    deletedAt,
+					ScannedAt:        metav1.Time{Time: now()},
+					ManifestBlob:     obj,
+					PreferredVersion: preferredVersion,
+					DeletedAt:        deletedAt,
 				}},
 			},
 		},
@@ -125,7 +126,8 @@ type requestAttributes struct {
 }
 
 type resource struct {
-	ManifestBlob client.Object `json:"manifest_blob"`
-	ScannedAt    metav1.Time   `json:"scanned_at"`
-	DeletedAt    *metav1.Time  `json:"deleted_at,omitempty"`
+	ManifestBlob     client.Object `json:"manifest_blob"`
+	PreferredVersion string        `json:"preferred_version"`
+	ScannedAt        metav1.Time   `json:"scanned_at"`
+	DeletedAt        *metav1.Time  `json:"deleted_at,omitempty"`
 }

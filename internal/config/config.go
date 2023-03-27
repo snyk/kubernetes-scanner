@@ -65,6 +65,10 @@ type Egress struct {
 	// file, can only be set through the environment variable.
 	SnykServiceAccountToken string `json:"-" env:"SNYK_SERVICE_ACCOUNT_TOKEN"`
 }
+type GroupVersionKind struct {
+	schema.GroupVersionKind
+	PreferredVersion string
+}
 
 func (e Egress) validate() error {
 	url, err := url.Parse(e.SnykAPIBaseURL)
@@ -147,6 +151,7 @@ type Discovery interface {
 	// be the preferredVersion.
 	versionsForGroup(string) ([]string, error)
 	findGVK(schema.GroupVersionResource) (schema.GroupVersionKind, error)
+	findGroupPreferredVersion(group string) (string, error)
 }
 
 type ScanType struct {
@@ -162,8 +167,8 @@ type ScanType struct {
 }
 
 // GetGVKs returns all the GVKs that are defined in the ScanType and are available on the server.
-func (st ScanType) GetGVKs(d Discovery, log logr.Logger) ([]schema.GroupVersionKind, error) {
-	var gvks []schema.GroupVersionKind
+func (st ScanType) GetGVKs(d Discovery, log logr.Logger) ([]GroupVersionKind, error) {
+	var gvks []GroupVersionKind
 	for _, group := range st.APIGroups {
 		versions := st.Versions
 		if slices.Contains(versions, "*") || len(versions) == 0 {
@@ -177,6 +182,12 @@ func (st ScanType) GetGVKs(d Discovery, log logr.Logger) ([]schema.GroupVersionK
 				log.Info("skipping group as it does not exist", "group", group)
 				continue
 			}
+		}
+
+		// Only find preferred version after ensuring that the group exists
+		preferredVersion, err := d.findGroupPreferredVersion(group)
+		if err != nil {
+			return nil, err
 		}
 
 	nextResource:
@@ -198,7 +209,7 @@ func (st ScanType) GetGVKs(d Discovery, log logr.Logger) ([]schema.GroupVersionK
 					// try finding this resource type in another version of this group.
 					continue
 				}
-				gvks = append(gvks, gvk)
+				gvks = append(gvks, GroupVersionKind{GroupVersionKind: gvk, PreferredVersion: preferredVersion})
 
 				// if no versions where initially specified, we're looking for a single
 				// GroupVersionResource combination. Usually, the version in that should be the
@@ -264,6 +275,19 @@ func (d *discoveryHelper) versionsForGroup(apiGroup string) ([]string, error) {
 		}
 	}
 	return nil, newNotFoundError(schema.GroupVersionResource{Group: apiGroup})
+}
+
+func (d *discoveryHelper) findGroupPreferredVersion(group string) (string, error) {
+	for _, knownGroup := range d.groups {
+		if group == knownGroup.Name {
+			preferredVersion := knownGroup.PreferredVersion.Version
+			if group == "" {
+				return preferredVersion, nil
+			}
+			return fmt.Sprintf("%s/%s", group, preferredVersion), nil
+		}
+	}
+	return "", fmt.Errorf("no known preferred version for group %s", group)
 }
 
 // findGVK returns the GroupVersionKind for the given GVR.

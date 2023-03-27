@@ -232,7 +232,7 @@ func newFakeBackend() *fakeBackend {
 	}
 }
 
-func (f *fakeBackend) Upsert(ctx context.Context, obj client.Object, orgID string, deletedAt *metav1.Time) error {
+func (f *fakeBackend) Upsert(ctx context.Context, obj client.Object, preferredVersion, orgID string, deletedAt *metav1.Time) error {
 	rID := newResourceID(obj, orgID)
 
 	if deletedAt == nil {

@@ -26,7 +26,7 @@ import (
 func TestGetGVKs(t *testing.T) {
 	testTypes := map[string]struct {
 		scanType     ScanType
-		expectedGVKs []schema.GroupVersionKind
+		expectedGVKs []GroupVersionKind
 	}{
 		"standard": {
 			scanType: ScanType{
@@ -34,14 +34,20 @@ func TestGetGVKs(t *testing.T) {
 				Versions:  []string{"v1"},
 				Resources: []string{"deployments", "pods"},
 			},
-			expectedGVKs: []schema.GroupVersionKind{{
-				Group:   "apps",
-				Version: "v1",
-				Kind:    "Deployment",
+			expectedGVKs: []GroupVersionKind{{
+				PreferredVersion: "v1",
+				GroupVersionKind: schema.GroupVersionKind{
+					Group:   "apps",
+					Version: "v1",
+					Kind:    "Deployment",
+				},
 			}, {
-				Group:   "",
-				Version: "v1",
-				Kind:    "Pod",
+				PreferredVersion: "v1",
+				GroupVersionKind: schema.GroupVersionKind{
+					Group:   "",
+					Version: "v1",
+					Kind:    "Pod",
+				},
 			}},
 		},
 		"inexistent-group-with-version-set": {
@@ -65,10 +71,13 @@ func TestGetGVKs(t *testing.T) {
 				Versions:  []string{"v1", "v1beta1"},
 				Resources: []string{"csidrivers"},
 			},
-			expectedGVKs: []schema.GroupVersionKind{{
-				Group:   "storage.k8s.io",
-				Version: "v1",
-				Kind:    "CSIDriver",
+			expectedGVKs: []GroupVersionKind{{
+				PreferredVersion: "v1",
+				GroupVersionKind: schema.GroupVersionKind{
+					Group:   "storage.k8s.io",
+					Version: "v1",
+					Kind:    "CSIDriver",
+				},
 			}},
 		},
 		"multiple-versions-in-all-groups": {
@@ -77,22 +86,34 @@ func TestGetGVKs(t *testing.T) {
 				Versions:  []string{"v1", "v2"},
 				Resources: []string{"horizontalpodautoscalers", "scales"},
 			},
-			expectedGVKs: []schema.GroupVersionKind{{
-				Group:   "autoscaling",
-				Version: "v1",
-				Kind:    "HorizontalPodAutoscaler",
+			expectedGVKs: []GroupVersionKind{{
+				PreferredVersion: "v1",
+				GroupVersionKind: schema.GroupVersionKind{
+					Group:   "autoscaling",
+					Version: "v1",
+					Kind:    "HorizontalPodAutoscaler",
+				},
 			}, {
-				Group:   "autoscaling",
-				Version: "v1",
-				Kind:    "Scale",
+				PreferredVersion: "v1",
+				GroupVersionKind: schema.GroupVersionKind{
+					Group:   "autoscaling",
+					Version: "v1",
+					Kind:    "Scale",
+				},
 			}, {
-				Group:   "autoscaling",
-				Version: "v2",
-				Kind:    "HorizontalPodAutoscaler",
+				PreferredVersion: "v1",
+				GroupVersionKind: schema.GroupVersionKind{
+					Group:   "autoscaling",
+					Version: "v2",
+					Kind:    "HorizontalPodAutoscaler",
+				},
 			}, {
-				Group:   "autoscaling",
-				Version: "v2",
-				Kind:    "Scale",
+				PreferredVersion: "v1",
+				GroupVersionKind: schema.GroupVersionKind{
+					Group:   "autoscaling",
+					Version: "v2",
+					Kind:    "Scale",
+				},
 			}},
 		},
 		"preferred-version": {
@@ -101,10 +122,13 @@ func TestGetGVKs(t *testing.T) {
 				Versions:  nil,
 				Resources: []string{"horizontalpodautoscalers"},
 			},
-			expectedGVKs: []schema.GroupVersionKind{{
-				Group:   "autoscaling",
-				Version: "v2",
-				Kind:    "HorizontalPodAutoscaler",
+			expectedGVKs: []GroupVersionKind{{
+				PreferredVersion: "v1",
+				GroupVersionKind: schema.GroupVersionKind{
+					Group:   "autoscaling",
+					Version: "v2",
+					Kind:    "HorizontalPodAutoscaler",
+				},
 			}},
 		},
 		"wildcard-version": {
@@ -113,14 +137,20 @@ func TestGetGVKs(t *testing.T) {
 				Versions:  []string{"*"},
 				Resources: []string{"horizontalpodautoscalers"},
 			},
-			expectedGVKs: []schema.GroupVersionKind{{
-				Group:   "autoscaling",
-				Version: "v2",
-				Kind:    "HorizontalPodAutoscaler",
+			expectedGVKs: []GroupVersionKind{{
+				PreferredVersion: "v1",
+				GroupVersionKind: schema.GroupVersionKind{
+					Group:   "autoscaling",
+					Version: "v2",
+					Kind:    "HorizontalPodAutoscaler",
+				},
 			}, {
-				Group:   "autoscaling",
-				Version: "v1",
-				Kind:    "HorizontalPodAutoscaler",
+				PreferredVersion: "v1",
+				GroupVersionKind: schema.GroupVersionKind{
+					Group:   "autoscaling",
+					Version: "v1",
+					Kind:    "HorizontalPodAutoscaler",
+				},
 			}},
 		},
 		"wildcard-version-inexistent-group": {
@@ -140,18 +170,27 @@ func TestGetGVKs(t *testing.T) {
 				// frontendconfigs only exist in v1beta1, managedcertificates only in v1.
 				Resources: []string{"serviceattachments", "frontendconfigs", "managedcertificates"},
 			},
-			expectedGVKs: []schema.GroupVersionKind{{
-				Group:   "networking.gke.io",
-				Version: "v1",
-				Kind:    "ServiceAttachment",
+			expectedGVKs: []GroupVersionKind{{
+				PreferredVersion: "v1",
+				GroupVersionKind: schema.GroupVersionKind{
+					Group:   "networking.gke.io",
+					Version: "v1",
+					Kind:    "ServiceAttachment",
+				},
 			}, {
-				Group:   "networking.gke.io",
-				Version: "v1beta1",
-				Kind:    "FrontendConfig",
+				PreferredVersion: "v1",
+				GroupVersionKind: schema.GroupVersionKind{
+					Group:   "networking.gke.io",
+					Version: "v1beta1",
+					Kind:    "FrontendConfig",
+				},
 			}, {
-				Group:   "networking.gke.io",
-				Version: "v1",
-				Kind:    "ManagedCertificate",
+				PreferredVersion: "v1",
+				GroupVersionKind: schema.GroupVersionKind{
+					Group:   "networking.gke.io",
+					Version: "v1",
+					Kind:    "ManagedCertificate",
+				},
 			}},
 		},
 	}
@@ -211,6 +250,10 @@ func (fd *fakeDiscovery) versionsForGroup(group string) ([]string, error) {
 		return nil, newNotFoundError(schema.GroupVersionResource{Group: group})
 	}
 	return versions, nil
+}
+
+func (fd *fakeDiscovery) findGroupPreferredVersion(group string) (string, error) {
+	return "v1", nil
 }
 
 func (fd *fakeDiscovery) findGVK(gvr schema.GroupVersionResource) (schema.GroupVersionKind, error) {
