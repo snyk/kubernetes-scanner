@@ -5,12 +5,6 @@ orbs:
   snyk: snyk/snyk@1
 
 commands:
-  gcr_auth:
-    description: Auth GCR
-    steps:
-      - run:
-          name: GCR auth
-          command: echo $GCLOUD_GCR_BUILDER | docker login -u _json_key --password-stdin https://gcr.io/snyk-main
   save-build-cache:
     steps:
       - save_cache:
@@ -35,7 +29,7 @@ commands:
           name: build docker image
           command: make image
       - snyk/scan:
-          docker-image-name: gcr.io/snyk-main/kubernetes-scanner:latest
+          docker-image-name: snyk/kubernetes-scanner:latest
           target-file: Dockerfile
           monitor-on-build: false
           fail-on-issues: true
@@ -121,15 +115,11 @@ jobs:
     docker: [image: "cimg/go:1.20"]
     steps:
       - checkout
-      - gcr_auth
       - build-docker-image
-      # TODO: enable once we want to push images to dockerhub. Also add the required env vars
-      # DOCKERHUB_USER and DOCKERHUB_PASSWORD to the project...probably through a context?
-      # Also remove the gcr_auth step above.
-      #- run:
-      #name: docker login
-      #command: |
-      #docker login --username ${DOCKERHUB_USER} --password ${DOCKERHUB_PASSWORD}
+      - run:
+          name: docker login
+          command: |
+            docker login --username ${DOCKERHUB_USER} --password ${DOCKERHUB_PASSWORD}
       - run:
           name: push docker image
           command: make image-push
