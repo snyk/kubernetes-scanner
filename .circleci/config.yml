@@ -183,12 +183,18 @@ workflows:
           context:
             - snyk-docker-build
             - snyk-apps
-            # This context contains a Personal Access Token from the snyk-deployer account.
-            # It's used to push commits & the Helm chart to the Github release. It is named
-            # "kubernetes-scanner Helm release CI" and will expire on Jan 06, 2024.
-            # To regenerate a token, login with the snyk-deployer account, create a token
-            # and add it / update the context.
-            - kubernetes-scanner-helm-release
+            # There's two types of tokens in this, the Docker credentials
+            # (username & password) and a Github PAT. Both are stored in
+            # 1Password ("DockerHub TIKI kubernetes-scanner" and "Github TIKI
+            # kubernetes-scanner"). The Github PAT will expire on March 27, 2024
+            # and will need to be rotated by logging in with the "snyk-deployer"
+            # account in Github. Do not forget to "Authorize SSO" on the new
+            # token. The same goes for the docker credentials, where you'll
+            # need to login with "snykdocker"
+            #
+            # The Github Token is used to push commits & the Helm chart to the
+            # Github release. The Docker token to publish the Docker image.
+            - tiki-kubernetes-scanner-release
           filters:
             branches:
               ignore: /.*/
