@@ -172,7 +172,7 @@ workflows:
       - semantic-release:
           name: Semantic Release
           context:
-            - kubernetes-scanner-helm-release
+            - tiki-kubernetes-scanner-release
           requires:
             - "Go test and lint"
           filters:
