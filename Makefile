@@ -57,7 +57,7 @@ image:
 		--build-arg GIT_TAG="${CIRCLE_TAG}" \
 		.
 image-push:
-	$(DOCKER) push -a snyk/kubernetes-scanner:$(TAG)
+	$(DOCKER) push --all-tags snyk/kubernetes-scanner
 
 chart:
 	$(GOCMD) run ./build/helmreleaser -version=$(TAG) -publish=false
