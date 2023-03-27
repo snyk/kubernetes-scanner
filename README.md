@@ -24,6 +24,10 @@ For further information on how to install and configure kubernetes-scanner, have
 a look at the
 [values.yaml](https://github.com/snyk/kubernetes-scanner/tree/main/helm/kubernetes-scanner/values.yaml)
 
+## Monitoring
+
+See [monitoring.md](docs/monitoring.md).
+
 ## Running tests
 
 kubernetes-scanner is built on top of `controller-runtime` and uses
