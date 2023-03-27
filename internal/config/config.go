@@ -89,7 +89,7 @@ const (
 	HTTPClientDefaultTimeout = 5 * time.Second
 
 	// SnykAPIDefaultBaseURL is the default endpoint that the scanner will talk to.
-	SnykAPIDefaultBaseURL = "https://app.snyk.io"
+	SnykAPIDefaultBaseURL = "https://api.snyk.io"
 )
 
 type Scan struct {
