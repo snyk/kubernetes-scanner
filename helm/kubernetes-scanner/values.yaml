@@ -48,37 +48,44 @@ config:
         # a list of API versions that should be scanned. If unset, the
         # APIServer's "preferredVersion" will be used. Can also specify
         # multiple to scan for multiple versions at once.
-        versions: ["v1"]
+        versions: ["*"]
         # an empty list (or not defining this key at all) does not limit
         # scanning to any namespace. E.g. "namespaces: ["default"]" would limit
         # the scanner to only scan for pods in the default namespace.
         namespaces: []
       - apiGroups: ["rbac.authorization.k8s.io"]
+        versions: ["*"]
         resources:
           - clusterroles
           - roles
           - clusterrolebindings
           - rolebindings
       - apiGroups: ["batch"]
+        versions: ["*"]
         resources:
           - cronjobs
           - jobs
       - apiGroups: ["apps"]
+        versions: ["*"]
         resources:
           - replicasets
           - daemonsets
           - deployments
           - statefulsets
       - apiGroups: ["networking.k8s.io"]
+        versions: ["*"]
         resources:
           - ingresses
       - apiGroups: ["apps.openshift.io"]
+        versions: ["*"]
         resources:
           - deploymentconfigs
       - apiGroups: ["argoproj.io"]
+        versions: ["*"]
         resources:
           - rollouts
       - apiGroups: ["gateway.solo.io"]
+        versions: ["*"]
         resources:
           - gateways
           - httpgateways
@@ -87,6 +94,7 @@ config:
           - virtualhostoptions
           - virtualservices
       - apiGroups: ["getambassador.io"]
+        versions: ["*"]
         resources:
           - consulresolvers
           - devportals
@@ -101,23 +109,28 @@ config:
           - tcpmappings
           - tracingservices
       - apiGroups: ["gloo.solo.io"]
+        versions: ["*"]
         resources:
           - proxies
           - upstreamgroups
           - upstreams
       - apiGroups: ["graphql.gloo.solo.io"]
+        versions: ["*"]
         resources:
           - graphqlschemas
       - apiGroups: ["install.istio.io"]
+        versions: ["*"]
         resources:
           - istiooperators
       - apiGroups: ["networking.gke.io"]
+        versions: ["*"]
         resources:
           - managedcertificates
           - serviceattachments
           - frontendconfigs
           - servicenetworkendpointgroups
       - apiGroups: ["networking.istio.io"]
+        versions: ["*"]
         resources:
           - destinationrules
           - envoyfilters
@@ -128,9 +141,11 @@ config:
           - workloadentries
           - workloadgroups
       - apiGroups: ["ratelimit.solo.io"]
+        versions: ["*"]
         resources:
           - ratelimitconfigs
       - apiGroups: ["security.istio.io"]
+        versions: ["*"]
         resources:
           - authorizationpolicies
           - peerauthentications
@@ -138,7 +153,7 @@ config:
     requeueAfter: "6h"
   egress:
     httpClientTimeout: "5s"
-    snykAPIBaseURL: "https://app.dev.snyk.io"
+    snykAPIBaseURL: "https://api.snyk.io"
 
 # secretName is the name of the secret containing auth credentials.
 # requires a key "snykServiceAccountToken". You can find more information on

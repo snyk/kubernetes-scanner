@@ -67,18 +67,19 @@ func TestHelmChartConfig(t *testing.T) {
 			RequeueAfter: metav1.Duration{Duration: 6 * time.Hour},
 			Types: []ScanType{{
 				APIGroups:  []string{""},
-				Versions:   []string{"v1"},
+				Versions:   []string{"*"},
 				Resources:  []string{"pods", "services", "namespaces", "replicationcontrollers", "nodes", "configmaps"},
 				Namespaces: []string{},
 			}, {
 				APIGroups: []string{"batch"},
+				Versions:  []string{"*"},
 				Resources: []string{"cronjobs", "jobs"},
 			}},
 		},
 		Egress: &Egress{
 			SnykServiceAccountToken: testToken,
 			HTTPClientTimeout:       metav1.Duration{Duration: 5 * time.Second},
-			SnykAPIBaseURL:          "https://app.dev.snyk.io",
+			SnykAPIBaseURL:          "https://api.snyk.io",
 		},
 	}
 	// these are just *some* GVKs, not all of them.
