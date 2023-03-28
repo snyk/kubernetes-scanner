@@ -153,10 +153,17 @@ func TestGetGVKs(t *testing.T) {
 				Kind:    "Pod",
 			}},
 		},
-		"inexistent-group": {
+		"inexistent-group-with-version-set": {
 			scanType: ScanType{
 				APIGroups: []string{"custom-crd.io"},
 				Versions:  []string{"v1"},
+				Resources: []string{"foo"},
+			},
+			expectedGVKs: nil,
+		},
+		"inexistent-group-with-no-version": {
+			scanType: ScanType{
+				APIGroups: []string{"custom-crd.io"},
 				Resources: []string{"foo"},
 			},
 			expectedGVKs: nil,
