@@ -27,7 +27,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -56,7 +55,7 @@ const testToken = "my-super-secret-token"
 func TestBackend(t *testing.T) {
 	const orgID = "org-123"
 	ctx := context.Background()
-	tu := testUpstream{orgID: orgID, auth: testToken}
+	tu := testUpstream{t: t, preferredVersion: "v1", orgID: orgID, auth: testToken}
 	ts := httptest.NewServer(http.HandlerFunc(tu.Handle))
 	defer ts.Close()
 
@@ -65,24 +64,39 @@ func TestBackend(t *testing.T) {
 		SnykAPIBaseURL:          ts.URL,
 		SnykServiceAccountToken: testToken,
 	})
-	err := b.Upsert(ctx, pod, orgID, nil)
+	err := b.Upsert(ctx, pod, "v1", orgID, nil)
 	require.NoError(t, err)
 
-	tu.deletion = true
-	err = b.Upsert(ctx, pod, orgID, &metav1.Time{Time: now().Local()})
+	tu.expectDeletion = true
+	err = b.Upsert(ctx, pod, "v1", orgID, &metav1.Time{Time: now().Local()})
 	require.NoError(t, err)
 
-	// make sure that our error handling also works; our upstream currently expects a
-	// delete-request, but we're sending a zero-time, so it will return an error. That error should
-	// be passed through to the caller of Upsert.
-	err = b.Upsert(ctx, pod, orgID, nil)
+}
+
+func TestBackendErrorHandling(t *testing.T) {
+	const orgID = "org-123"
+	ctx := context.Background()
+	tu := testUpstream{t: t, preferredVersion: "v1", orgID: orgID, auth: testToken, statusCodeToReturn: 400}
+	ts := httptest.NewServer(http.HandlerFunc(tu.Handle))
+	defer ts.Close()
+
+	b := New("my-pet-cluster", &config.Egress{
+		HTTPClientTimeout:       metav1.Duration{Duration: 1 * time.Second},
+		SnykAPIBaseURL:          ts.URL,
+		SnykServiceAccountToken: testToken,
+	})
+
+	err := b.Upsert(ctx, pod, "v1", orgID, nil)
 	require.Error(t, err)
 }
 
 type testUpstream struct {
-	orgID    string
-	deletion bool
-	auth     string
+	t                  *testing.T
+	preferredVersion   string
+	orgID              string
+	expectDeletion     bool
+	auth               string
+	statusCodeToReturn int
 }
 
 func (tu *testUpstream) Handle(w http.ResponseWriter, r *http.Request) {
@@ -113,22 +127,23 @@ func (tu *testUpstream) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if tu.statusCodeToReturn != 0 {
+		http.Error(w, "an error occurred", tu.statusCodeToReturn)
+		return
+	}
+
 	expected := []resource{{
-		ManifestBlob: pod,
+		ManifestBlob:     pod,
+		PreferredVersion: tu.preferredVersion,
 		// when unmarshaling from JSON, metav1.Time also calls Local(), so we need to do too.
 		ScannedAt: metav1.Time{Time: now().Local()},
 	}}
 
-	if tu.deletion {
+	if tu.expectDeletion {
 		expected[0].DeletedAt = &metav1.Time{Time: now().Local()}
 	}
 
-	if !assert.ObjectsAreEqual(expected, req.Data.Attributes.Resources) {
-		http.Error(w,
-			fmt.Sprintf("objects are not equal. expected=%+v, got=%+v", expected, req.Data.Attributes.Resources),
-			400)
-		return
-	}
+	require.Equal(tu.t, expected, req.Data.Attributes.Resources)
 }
 
 var pod = &corev1.Pod{
@@ -196,7 +211,7 @@ func TestJSONMatches(t *testing.T) {
 			Kind:       "Pod",
 		},
 	}
-	r, err := b.newPostBody(pod, nil)
+	r, err := b.newPostBody(pod, "v1", nil)
 	require.NoError(t, err)
 
 	body, err := io.ReadAll(r)
@@ -227,6 +242,7 @@ func TestJSONMatches(t *testing.T) {
 						},
 						"status": {}
 					},
+					"preferred_version": "v1",
 					"scanned_at": "2023-02-20T16:41:17Z"
 				}
 			]

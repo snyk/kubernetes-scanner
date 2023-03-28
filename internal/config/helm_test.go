@@ -67,39 +67,40 @@ func TestHelmChartConfig(t *testing.T) {
 			RequeueAfter: metav1.Duration{Duration: 6 * time.Hour},
 			Types: []ScanType{{
 				APIGroups:  []string{""},
-				Versions:   []string{"v1"},
+				Versions:   []string{"*"},
 				Resources:  []string{"pods", "services", "namespaces", "replicationcontrollers", "nodes", "configmaps"},
 				Namespaces: []string{},
 			}, {
 				APIGroups: []string{"batch"},
+				Versions:  []string{"*"},
 				Resources: []string{"cronjobs", "jobs"},
 			}},
 		},
 		Egress: &Egress{
 			SnykServiceAccountToken: testToken,
 			HTTPClientTimeout:       metav1.Duration{Duration: 5 * time.Second},
-			SnykAPIBaseURL:          "https://app.dev.snyk.io",
+			SnykAPIBaseURL:          "https://api.snyk.io",
 		},
 	}
 	// these are just *some* GVKs, not all of them.
-	expectedGVKs := [][]schema.GroupVersionKind{
+	expectedGVKs := [][]GroupVersionKind{
 		{
-			{Group: "", Version: "v1", Kind: "Pod"},
-			{Group: "", Version: "v1", Kind: "Service"},
-			{Group: "", Version: "v1", Kind: "Namespace"},
-			{Group: "", Version: "v1", Kind: "ReplicationController"},
-			{Group: "", Version: "v1", Kind: "Node"},
-			{Group: "", Version: "v1", Kind: "ConfigMap"},
+			{GroupVersionKind: schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Pod"}, PreferredVersion: "v1"},
+			{GroupVersionKind: schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Service"}, PreferredVersion: "v1"},
+			{GroupVersionKind: schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Namespace"}, PreferredVersion: "v1"},
+			{GroupVersionKind: schema.GroupVersionKind{Group: "", Version: "v1", Kind: "ReplicationController"}, PreferredVersion: "v1"},
+			{GroupVersionKind: schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Node"}, PreferredVersion: "v1"},
+			{GroupVersionKind: schema.GroupVersionKind{Group: "", Version: "v1", Kind: "ConfigMap"}, PreferredVersion: "v1"},
 		}, {
-			{Group: "apps", Version: "v1", Kind: "ReplicaSet"},
-			{Group: "apps", Version: "v1", Kind: "DaemonSet"},
-			{Group: "apps", Version: "v1", Kind: "Deployment"},
-			{Group: "apps", Version: "v1", Kind: "StatefulSet"},
+			{GroupVersionKind: schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "ReplicaSet"}, PreferredVersion: "apps/v1"},
+			{GroupVersionKind: schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "DaemonSet"}, PreferredVersion: "apps/v1"},
+			{GroupVersionKind: schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}, PreferredVersion: "apps/v1"},
+			{GroupVersionKind: schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "StatefulSet"}, PreferredVersion: "apps/v1"},
 		}, {
-			{Group: "batch", Version: "v1", Kind: "CronJob"},
-			{Group: "batch", Version: "v1", Kind: "Job"},
+			{GroupVersionKind: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "CronJob"}, PreferredVersion: "batch/v1"},
+			{GroupVersionKind: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"}, PreferredVersion: "batch/v1"},
 		}, {
-			{Group: "networking.k8s.io", Version: "v1", Kind: "Ingress"},
+			{GroupVersionKind: schema.GroupVersionKind{Group: "networking.k8s.io", Version: "v1", Kind: "Ingress"}, PreferredVersion: "networking.k8s.io/v1"},
 		},
 		// we don't deploy any CRDs, so we can't check them.
 		// TODO: should we?
@@ -133,7 +134,7 @@ func TestHelmChartConfig(t *testing.T) {
 		t.Fatalf("could not get discovery client: %v", err)
 	}
 
-	var allGVKs [][]schema.GroupVersionKind
+	var allGVKs [][]GroupVersionKind
 	for _, st := range cfg.Scanning.Types {
 		gvks, err := st.GetGVKs(d, zap.New(zap.UseDevMode(true)))
 		if err != nil {
