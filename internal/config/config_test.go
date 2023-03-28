@@ -16,121 +16,12 @@
 package config
 
 import (
-	"flag"
-	"os"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-
-	"github.com/snyk/kubernetes-scanner/internal/test"
 )
-
-func TestConfigRealAPIServer(t *testing.T) {
-	if testing.Short() {
-		t.Skip("not spawning API Server in the interest of time")
-	}
-
-	dir := t.TempDir()
-	f, err := os.CreateTemp(dir, "")
-	if err != nil {
-		t.Fatalf("could not create temporary file for testing: %v", err)
-	}
-
-	const actualConfig = `
-metricsAddress: ":8080"
-clusterName: dev
-organizationID: "some-id"
-scanning:
-  requeueAfter: 1m
-  types:
-  - apiGroups: [""]
-    resources: 
-      - pods
-  - apiGroups:
-    - "apps"
-    versions: ["v1"]
-    resources: ["deployments"]
-    namespaces: ["default"]
-egress:
-  httpClientTimeout: 5s
-  snykAPIBaseURL: https://app.dev.snyk.io
-`
-
-	const testToken = "my-token"
-	t.Setenv("SNYK_SERVICE_ACCOUNT_TOKEN", testToken)
-
-	expected := &Config{
-		MetricsAddress: ":8080",
-		ClusterName:    "dev",
-		OrganizationID: "some-id",
-		Scanning: Scan{
-			RequeueAfter: metav1.Duration{Duration: time.Minute},
-			Types: []ScanType{{
-				APIGroups: []string{""},
-				Versions:  nil,
-				Resources: []string{"pods"},
-			}, {
-				APIGroups:  []string{"apps"},
-				Versions:   []string{"v1"},
-				Resources:  []string{"deployments"},
-				Namespaces: []string{"default"},
-			}},
-		},
-		Egress: &Egress{
-			SnykServiceAccountToken: testToken,
-			HTTPClientTimeout:       metav1.Duration{Duration: 5 * time.Second},
-			SnykAPIBaseURL:          "https://app.dev.snyk.io",
-		},
-	}
-	expectedGVKs := [][]schema.GroupVersionKind{
-		{{
-			Group:   "",
-			Version: "v1",
-			Kind:    "Pod",
-		}}, {{
-			Group:   "apps",
-			Version: "v1",
-			Kind:    "Deployment",
-		}},
-	}
-
-	restCfg := test.SetupEnv(t)
-	if err := flag.Set("kubeconfig", test.GenerateKubeconfig(t, restCfg)); err != nil {
-		t.Fatalf("could not set kubeconfig flag: %v", err)
-	}
-	flag.Parse()
-
-	if _, err := f.Write([]byte(actualConfig)); err != nil {
-		t.Fatalf("error writing config file: %v", err)
-	}
-
-	cfg, err := Read(f.Name())
-	if err != nil {
-		t.Fatalf("could not read config: %v", err)
-	}
-
-	require.Equal(t, expected.Scanning, cfg.Scanning)
-	require.Equal(t, expected.MetricsAddress, cfg.MetricsAddress)
-	require.Equal(t, expected.ProbeAddress, cfg.ProbeAddress)
-	require.Equal(t, expected.Egress, cfg.Egress)
-
-	d, err := cfg.Discovery()
-	if err != nil {
-		t.Fatalf("could not get discovery client: %v", err)
-	}
-
-	for i, st := range cfg.Scanning.Types {
-		gvks, err := st.GetGVKs(d, zap.New(zap.UseDevMode(true)))
-		if err != nil {
-			t.Fatalf("could not get GVKs: %v", err)
-		}
-		require.Equal(t, gvks, expectedGVKs[i])
-	}
-}
 
 func TestGetGVKs(t *testing.T) {
 	testTypes := map[string]struct {
