@@ -64,6 +64,7 @@ func TestController(t *testing.T) {
 			RequeueAfter: metav1.Duration{Duration: time.Second},
 		},
 		OrganizationID: orgID,
+		MetricsAddress: "localhost:9091",
 	}
 
 	if err := waitForAPI(ctx, c); err != nil {
