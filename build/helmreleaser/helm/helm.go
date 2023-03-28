@@ -16,18 +16,66 @@
 package helm
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
 	helmchart "helm.sh/helm/v3/pkg/chart"
+	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/provenance"
 	helmrepo "helm.sh/helm/v3/pkg/repo"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/kubectl/pkg/scheme"
 	"sigs.k8s.io/yaml"
 )
+
+// TemplateChart  templates the helm chart at the given path with the given values and returns the
+// decoded manifests. Note that CRDs cannot be decoded and will thus fail.
+func TemplateChart(path string, values map[string]interface{}) ([]runtime.Object, error) {
+	chart, err := loader.Load(path)
+	if err != nil {
+		return nil, fmt.Errorf("could not load Helm chart: %w", err)
+	}
+
+	actionConfig := &action.Configuration{}
+	if err := actionConfig.Init(nil, "snyk", "", nil); err != nil {
+		return nil, fmt.Errorf("could not initialise chart action config: %w", err)
+	}
+
+	iCli := action.NewInstall(actionConfig)
+	iCli.ClientOnly = true
+	iCli.ReleaseName = "test-render"
+	rel, err := iCli.Run(chart, values)
+	if err != nil {
+		return nil, fmt.Errorf("could not render helm chart: %w", err)
+	}
+
+	multidocReader := utilyaml.NewYAMLReader(bufio.NewReader(strings.NewReader(rel.Manifest)))
+	var objs []runtime.Object
+	for {
+		buf, err := multidocReader.Read()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, fmt.Errorf("could not read yaml document: %w", err)
+		}
+
+		// if we'd want to decode CRDs, we'd need to register the codecs.
+		obj, _, err := scheme.Codecs.UniversalDeserializer().Decode(buf, nil, nil)
+		if err != nil {
+			return nil, fmt.Errorf("could not decode resource: %w", err)
+		}
+		objs = append(objs, obj)
+	}
+	return objs, nil
+}
 
 type PackagedChart struct {
 	Name    string
