@@ -18,6 +18,8 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
+enabled: true
+
 # TODO: set cluster name & orgID
 #organizationID: "setme"
 
