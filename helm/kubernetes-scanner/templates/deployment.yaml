@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+{{- if .Values.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -91,3 +92,4 @@ spec:
         - name: config
           configMap:
             name: {{ include "kubernetes-scanner.fullname" . }}
+{{- end }}
