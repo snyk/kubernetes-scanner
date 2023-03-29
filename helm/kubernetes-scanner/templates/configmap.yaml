@@ -26,6 +26,7 @@ metadata:
   {{- end }}
 data:
   "config.yaml": |
+    probeAddress: ":{{ .Values.healthCheck.port }}"
     metricsAddress: ":{{ .Values.metrics.port }}"
     clusterName: "{{ .Values.config.clusterName }}"
     organizationID: {{ required "An organizationID is required!" .Values.organizationID }}
