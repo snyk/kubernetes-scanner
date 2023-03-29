@@ -219,3 +219,7 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
+
+prometheus:
+  podMonitor:
+    enabled: false

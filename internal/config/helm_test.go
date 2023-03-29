@@ -61,6 +61,7 @@ func TestHelmChartConfig(t *testing.T) {
 
 	expected := &Config{
 		MetricsAddress: ":8080",
+		ProbeAddress:   ":8081",
 		ClusterName:    "default",
 		OrganizationID: "umbrella-corp",
 		Scanning: Scan{
