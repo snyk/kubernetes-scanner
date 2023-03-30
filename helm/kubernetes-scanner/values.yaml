@@ -52,9 +52,12 @@ config:
         # multiple to scan for multiple versions at once.
         versions: ["*"]
         # an empty list (or not defining this key at all) does not limit
-        # scanning to any namespace. E.g. "namespaces: ["default"]" would limit
-        # the scanner to only scan for pods in the default namespace.
-        namespaces: []
+        # scanning to any namespace.
+        # Limit scanning to certain namespaces. An empty list limits scanning
+        # to only cluster-scoped resources.
+        # E.g. "namespaces: ["default"]" would limit the scanner to only scan
+        # for pods in the default namespace.
+        # namespaces: []
       - apiGroups: ["rbac.authorization.k8s.io"]
         versions: ["*"]
         resources:
