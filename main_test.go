@@ -30,6 +30,8 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"github.com/snyk/kubernetes-scanner/internal/config"
 	controllertest "github.com/snyk/kubernetes-scanner/internal/test"
@@ -48,6 +50,8 @@ func TestController(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
+
+	log.SetLogger(zap.New(zap.UseDevMode(true)))
 
 	test := newTest(t)
 	c, err := client.New(test.config, client.Options{Scheme: scheme.Scheme})
@@ -181,6 +185,15 @@ func newTest(t *testing.T) test {
 					}},
 				},
 			},
+			&corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "a-node",
+				},
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Node",
+					APIVersion: "v1",
+				},
+			},
 			&corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "normal-secret",
@@ -207,7 +220,7 @@ func newTest(t *testing.T) test {
 		},
 		types: []config.ScanType{{
 			APIGroups: []string{""},
-			Resources: []string{"secrets", "pods"},
+			Resources: []string{"secrets", "pods", "nodes"},
 			Versions:  []string{"v1"},
 		}, {
 			APIGroups:  []string{""},

@@ -161,9 +161,10 @@ type ScanType struct {
 	// Versions is an optional field to specify which exact versions should be scanned. If unset,
 	// the scanner will use the API Server's preferred version.
 	Versions []string `json:"versions"`
-	// Namespaces allows to restrict scanning to specific namespaces. An empty list means all
-	// namespaces.
-	Namespaces []string `json:"namespaces"`
+	// Namespaces allows to restrict scanning to specific namespaces. An empty list means no
+	// namespaces. Omit to scan resources in all namespaces. Does not affect the scanning of
+	// cluster-scoped resources.
+	Namespaces []string `json:"namespaces,omitempty"`
 }
 
 // GetGVKs returns all the GVKs that are defined in the ScanType and are available on the server.

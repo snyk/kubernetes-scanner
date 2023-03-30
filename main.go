@@ -155,7 +155,9 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	)
 	log.Info("reconciling resource")
 
-	if r.namespaces != nil && !slices.Contains(r.namespaces, req.Namespace) {
+	// as long as r.namespaces is set, we want to check it. It might be 0-length, which will skip
+	// all namespaced resources. This is expected behavior.
+	if req.Namespace != "" && r.namespaces != nil && !slices.Contains(r.namespaces, req.Namespace) {
 		// don't set the requeueafter, we don't need it.
 		log.V(1).Info("skipping resources as namespace is ignored")
 		return ctrl.Result{}, nil

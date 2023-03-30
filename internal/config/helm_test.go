@@ -67,10 +67,9 @@ func TestHelmChartConfig(t *testing.T) {
 		Scanning: Scan{
 			RequeueAfter: metav1.Duration{Duration: 6 * time.Hour},
 			Types: []ScanType{{
-				APIGroups:  []string{""},
-				Versions:   []string{"*"},
-				Resources:  []string{"pods", "services", "namespaces", "replicationcontrollers", "nodes", "configmaps"},
-				Namespaces: []string{},
+				APIGroups: []string{""},
+				Versions:  []string{"*"},
+				Resources: []string{"pods", "services", "namespaces", "replicationcontrollers", "nodes", "configmaps"},
 			}, {
 				APIGroups: []string{"batch"},
 				Versions:  []string{"*"},
