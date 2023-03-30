@@ -181,6 +181,15 @@ func newTest(t *testing.T) test {
 					}},
 				},
 			},
+			&corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "a-node",
+				},
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Node",
+					APIVersion: "v1",
+				},
+			},
 			&corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "normal-secret",
@@ -207,7 +216,7 @@ func newTest(t *testing.T) test {
 		},
 		types: []config.ScanType{{
 			APIGroups: []string{""},
-			Resources: []string{"secrets", "pods"},
+			Resources: []string{"secrets", "pods", "nodes"},
 			Versions:  []string{"v1"},
 		}, {
 			APIGroups:  []string{""},
