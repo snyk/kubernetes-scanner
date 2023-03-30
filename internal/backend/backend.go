@@ -26,9 +26,51 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/snyk/kubernetes-scanner/internal/config"
 )
+
+// the default transport automatically honors HTTP_PROXY settings.
+// this value is overwritten by init with a roundtripper that has prometheus metrics.
+var transport = http.DefaultTransport
+
+func init() {
+	commonLabels := []string{"code", "method"}
+	// all supported metrics:
+	var (
+		requests = prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Subsystem: "http_outgoing",
+				Name:      "requests_total",
+				Help:      "A counter for outgoing requests.",
+			},
+			commonLabels,
+		)
+
+		durations = prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Subsystem: "http_outgoing",
+				Name:      "request_duration_histogram_seconds",
+				Help:      "Request time duration.",
+				Buckets:   prometheus.DefBuckets,
+			},
+			commonLabels,
+		)
+	)
+
+	metrics.Registry.MustRegister(&httpMetricsCollector{
+		metrics: []prometheus.Collector{requests, durations},
+	})
+
+	transport = promhttp.InstrumentRoundTripperDuration(
+		durations,
+		promhttp.InstrumentRoundTripperCounter(requests, transport),
+	)
+}
 
 type Backend struct {
 	apiEndpoint      string
@@ -45,8 +87,7 @@ func New(clusterName string, cfg *config.Egress) *Backend {
 		authorizationKey: cfg.SnykServiceAccountToken,
 
 		client: &http.Client{
-			// the default transport automatically honors HTTP_PROXY settings.
-			Transport: http.DefaultTransport,
+			Transport: transport,
 			Timeout:   cfg.HTTPClientTimeout.Duration,
 		},
 	}
@@ -130,4 +171,58 @@ type resource struct {
 	PreferredVersion string        `json:"preferred_version"`
 	ScannedAt        metav1.Time   `json:"scanned_at"`
 	DeletedAt        *metav1.Time  `json:"deleted_at,omitempty"`
+}
+
+//func instrumentClient(rt http.RoundTripper, reg prometheus.Registerer) (http.RoundTripper, error) {
+//commonLabels := []string{"code", "method"}
+//// all supported metrics:
+//var (
+//requests = prometheus.NewCounterVec(
+//prometheus.CounterOpts{
+//Subsystem: "http_outgoing",
+//Name:      "requests_total",
+//Help:      "A counter for outgoing requests.",
+//},
+//commonLabels,
+//)
+
+//durations = prometheus.NewHistogramVec(
+//prometheus.HistogramOpts{
+//Subsystem: "http_outgoing",
+//Name:      "request_duration_histogram_seconds",
+//Help:      "Request time duration.",
+//Buckets:   prometheus.DefBuckets,
+//},
+//commonLabels,
+//)
+//)
+
+//h := &httpMetricsCollector{
+//metrics: []prometheus.Collector{requests, durations},
+//}
+//// unregister the handler to make sure it's never registered twice.
+//_ = reg.Unregister(h)
+
+//return promhttp.InstrumentRoundTripperDuration(
+//durations,
+//promhttp.InstrumentRoundTripperCounter(requests, rt),
+//), reg.Register(h)
+//}
+
+type httpMetricsCollector struct {
+	metrics []prometheus.Collector
+}
+
+// Describe implements prometheus.Collector interface.
+func (h *httpMetricsCollector) Describe(in chan<- *prometheus.Desc) {
+	for _, m := range h.metrics {
+		m.Describe(in)
+	}
+}
+
+// Collect implements prometheus.Collector interface.
+func (h *httpMetricsCollector) Collect(in chan<- prometheus.Metric) {
+	for _, m := range h.metrics {
+		m.Collect(in)
+	}
 }

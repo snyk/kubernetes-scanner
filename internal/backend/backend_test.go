@@ -32,6 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	"github.com/snyk/kubernetes-scanner/internal/config"
 )
@@ -71,6 +72,21 @@ func TestBackend(t *testing.T) {
 	err = b.Upsert(ctx, pod, "v1", orgID, &metav1.Time{Time: now().Local()})
 	require.NoError(t, err)
 
+	// some simple checks to make sure that the metrics show up.
+	metrics, err := metrics.Registry.Gather()
+	require.NoError(t, err)
+
+	var customMetrics int
+	for _, metric := range metrics {
+		switch *metric.Name {
+		case "http_outgoing_requests_total":
+			require.Equal(t, metric.GetMetric()[0].Counter.GetValue(), 2.0)
+			customMetrics++
+		case "http_outgoing_request_duration_histogram_seconds":
+			customMetrics++
+		}
+	}
+	require.Equal(t, customMetrics, 2)
 }
 
 func TestBackendErrorHandling(t *testing.T) {
