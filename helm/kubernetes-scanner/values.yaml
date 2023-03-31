@@ -226,3 +226,4 @@ affinity: {}
 prometheus:
   podMonitor:
     enabled: false
+    labels: {}

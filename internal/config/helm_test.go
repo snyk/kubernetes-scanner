@@ -17,7 +17,6 @@ package config
 
 import (
 	"flag"
-	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -25,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
@@ -38,13 +38,56 @@ func TestHelmChartConfig(t *testing.T) {
 		t.Skip("not spawning API Server in the interest of time")
 	}
 
-	cm, err := getHelmChartConfigMap("//helm/kubernetes-scanner", map[string]interface{}{
+	values := map[string]interface{}{
 		"secretName":     "snyk-service-account",
 		"organizationID": "umbrella-corp",
-	})
-	if err != nil {
-		t.Fatalf("could not load config from helm chart: %v", err)
+		// while this doesn't test the correctness of the podMonitor, it at least ensures that it
+		// can be decoded and is templated correctly.
+		"prometheus": map[string]interface{}{
+			"podMonitor": map[string]interface{}{
+				"enabled": true,
+				"labels":  map[string]interface{}{"some": "label"},
+			},
+		},
 	}
+
+	p, err := git.ResolvePath("//helm/kubernetes-scanner")
+	if err != nil {
+		t.Fatalf("could not resolve git path: %v", err)
+	}
+
+	objs, err := helm.TemplateChart(p, values)
+	if err != nil {
+		t.Fatalf("could not template chart: %v", err)
+	}
+
+	var checksOk int
+	for _, obj := range objs {
+		switch o := obj.(type) {
+		case *corev1.ConfigMap:
+			checkConfigMap(t, o)
+			checksOk++
+		case *unstructured.Unstructured:
+			apiVersion, kind := o.GetAPIVersion(), o.GetKind()
+			switch {
+			case apiVersion == "monitoring.coreos.com/v1" && kind == "PodMonitor":
+				checkUnstructuredPodMonitor(t, o)
+				checksOk++
+			}
+		}
+	}
+	if checksOk != 2 {
+		t.Fatalf("wrong amount of checks ok. expected=%v, got=%v", 2, checksOk)
+	}
+}
+
+func checkUnstructuredPodMonitor(t *testing.T, u *unstructured.Unstructured) {
+	if u.GetLabels()["some"] != "label" {
+		t.Fatalf("label 'release' is missing: %v", u.GetLabels())
+	}
+}
+
+func checkConfigMap(t *testing.T, cm *corev1.ConfigMap) {
 	config, ok := cm.Data["config.yaml"]
 	if !ok {
 		t.Fatalf("configMap does not contain `config.yaml`")
@@ -147,24 +190,4 @@ func TestHelmChartConfig(t *testing.T) {
 	for _, expectedGVK := range expectedGVKs {
 		require.Contains(t, allGVKs, expectedGVK)
 	}
-}
-
-func getHelmChartConfigMap(path string, values map[string]interface{}) (*corev1.ConfigMap, error) {
-	p, err := git.ResolvePath(path)
-	if err != nil {
-		return nil, fmt.Errorf("could not resolve git path: %w", err)
-	}
-
-	objs, err := helm.TemplateChart(p, values)
-	if err != nil {
-		return nil, fmt.Errorf("could not template chart: %w", err)
-	}
-
-	for _, obj := range objs {
-		if cm, ok := obj.(*corev1.ConfigMap); ok {
-			return cm, nil
-		}
-	}
-
-	return nil, fmt.Errorf("no config file in templated manifests found")
 }

@@ -21,6 +21,9 @@ metadata:
   name: {{ include "kubernetes-scanner.fullname" . }}
   labels:
     {{- include "kubernetes-scanner.labels" . | nindent 4 }}
+    {{- with .Values.prometheus.podMonitor.labels -}}
+    {{ toYaml . | nindent 4 }}
+    {{- end }}
 spec:
   selector:
     matchLabels:
