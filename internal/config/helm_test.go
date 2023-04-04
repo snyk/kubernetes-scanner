@@ -41,6 +41,7 @@ func TestHelmChartConfig(t *testing.T) {
 	values := map[string]interface{}{
 		"secretName":     "snyk-service-account",
 		"organizationID": "umbrella-corp",
+		"clusterName":    "default",
 		// while this doesn't test the correctness of the podMonitor, it at least ensures that it
 		// can be decoded and is templated correctly.
 		"prometheus": map[string]interface{}{
