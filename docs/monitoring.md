@@ -5,6 +5,20 @@ and tools: controller-runtime and Kubebuilder. As such, it exposes the
 [standard controller metrics](https://book.kubebuilder.io/reference/metrics-reference.html)
 on a Prometheus endpoint.
 
+## Collection
+
+If you are using [the Prometheus Kubernetes operator](https://github.com/prometheus-operator/prometheus-operator)
+(or another stack that makes use of its CRDs), you can enable metrics collection
+enabling the helm chart's PodMonitor in your values overrides:
+
+```yaml
+prometheus:
+  podMonitor:
+    enabled: true
+```
+
+## Alerting
+
 If the scanner fails to push resources to Snyk's backend, the reconciliation
 will fail. The controller-runtime will ensure a continuous retry (with backoff).
 The metric `controller_runtime_reconcile_errors_total` is incremented for each
@@ -13,12 +27,15 @@ reconcile error ratio. An example prometheus alerting query, that would return
 data when the error ratio exceeds 1%:
 
 ```
-sum(rate(controller_runtime_reconcile_errors_total[1m])) / sum(rate(controller_runtime_reconcile_total[1m])) > 0.01
+sum(rate(controller_runtime_reconcile_errors_total[1m])) / sum(rate(controller_runtime_reconcile_total[1m])) > 0.1
 ```
 
-Occasional failures are expected, and the backoff-retry mechanism may often
-resolve them. As such it's recommended to set a sufficiently long `for` rule on
-any Prometheus alerts to balance signal with noise.
+The example threshold of 10% may seem high, but occasional failures are
+expected, and the backoff-retry mechanism may often resolve them. As such it's
+recommended to set a sufficiently long `for` rule on any Prometheus alerts to
+balance signal with noise. We are actively working on a mechanism to allow
+persistent reconciliation failures to rise above the noise and allow alerting to
+be improved.
 
 In response to alerts, see the scanner's logs for details on what might be going
 wrong. Please report persistent errors to

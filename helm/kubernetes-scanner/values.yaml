@@ -20,13 +20,21 @@
 
 enabled: true
 
-# TODO: set cluster name & orgID
-#organizationID: "setme"
+# MANDATORY: set cluster name & orgID
+#
+# organizationID: "setme"
+
+# MANDATORY: clusterName is a friendly name for the cluster that this agent is
+# running on. For example "prod-us" or "dev-eu".
+# If installing scanners to multiple clusters, please configure a different
+# cluster name for each cluster. These do not need to be globally unique, as
+# they are scoped by organization, but using clashing cluster names within an
+# organization may make it difficult for users to associate issues with specific
+# clusters later.
+#
+# clusterName: "default"
 
 config:
-  # clusterName is a friendly name for the cluster that this agent is running
-  # on. For example "prod-us" or "dev-eu".
-  clusterName: "default"
   scanning:
     # define all types that will be scanned on your cluster. This part will be
     # used to generate the config for the scanner, as well as the RBAC
@@ -39,6 +47,10 @@ config:
     types:
       # A list of APIGroups where the below resources are in.
       - apiGroups: [""]
+        # a list of API versions that should be scanned. If unset, the
+        # APIServer's "preferredVersion" will be used. Can also specify
+        # multiple to scan for multiple versions at once.
+        versions: ["*"]
         # a list of resource types to scan.
         resources:
           - pods
@@ -47,17 +59,11 @@ config:
           - replicationcontrollers
           - nodes
           - configmaps
-        # a list of API versions that should be scanned. If unset, the
-        # APIServer's "preferredVersion" will be used. Can also specify
-        # multiple to scan for multiple versions at once.
-        versions: ["*"]
-        # an empty list (or not defining this key at all) does not limit
-        # scanning to any namespace.
-        # Limit scanning to certain namespaces. An empty list limits scanning
-        # to only cluster-scoped resources.
-        # E.g. "namespaces: ["default"]" would limit the scanner to only scan
-        # for pods in the default namespace.
-        # namespaces: []
+        # Omit the namespaces array to scan resources from all available
+        # namespaces. This configuration also includes non-namespaced resources,
+        # e.g. ClusterRoles.
+        # Declare an empty list to _only_ scan non-namespaced resources.
+        # namespaces: ["default"]
       - apiGroups: ["rbac.authorization.k8s.io"]
         versions: ["*"]
         resources:
@@ -160,16 +166,20 @@ config:
     httpClientTimeout: "5s"
     snykAPIBaseURL: "https://api.snyk.io"
 
-# secretName is the name of the secret containing auth credentials.
-# requires a key "snykServiceAccountToken". You can find more information on
+# MANDATORY: The name of a secret containing auth credentials, which must be
+# provisioned outside of this chart.
+# Requires a key "snykServiceAccountToken". You can find more information on
 # Snyk service accounts at https://docs.snyk.io/snyk-admin/service-accounts.
-secretName: ""
+# The service account must be associated with the organizationID configured
+# above.
+#
+# secretName: ""
 
 image:
   repository: snyk/kubernetes-scanner
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
-  tag: ""
+  # tag: ""
 
 imagePullSecrets: []
 nameOverride: ""
@@ -207,10 +217,8 @@ metrics:
 
 resources:
   {}
-  # We usually recommend not to specify default resources and to leave this as a conscious
-  # choice for the user. This also increases chances charts run on environments with little
-  # resources, such as Minikube. If you do want to specify resources, uncomment the following
-  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # Example resources:
+  #
   # limits:
   #   cpu: 100m
   #   memory: 128Mi

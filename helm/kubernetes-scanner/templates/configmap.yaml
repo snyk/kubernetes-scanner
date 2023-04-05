@@ -28,8 +28,8 @@ data:
   "config.yaml": |
     probeAddress: ":{{ .Values.healthCheck.port }}"
     metricsAddress: ":{{ .Values.metrics.port }}"
-    clusterName: "{{ .Values.config.clusterName }}"
-    organizationID: {{ required "An organizationID is required!" .Values.organizationID }}
+    clusterName: {{ required "A clusterName is required" .Values.clusterName | quote }}
+    organizationID: {{ required "An organizationID is required" .Values.organizationID | quote }}
     scanning:
       requeueAfter: {{ .Values.config.scanning.requeueAfter }}
       types:
