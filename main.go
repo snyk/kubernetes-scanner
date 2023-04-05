@@ -17,11 +17,10 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"time"
-
 	"flag"
+	"fmt"
 	"os"
+	"time"
 
 	"github.com/snyk/kubernetes-scanner/build"
 	"github.com/snyk/kubernetes-scanner/internal/backend"
@@ -39,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
 var setupLog = ctrl.Log.WithName("setup")
@@ -71,7 +71,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	mgr, err := setupController(cfg, backend.New(cfg.ClusterName, cfg.Egress))
+	mgr, err := setupController(cfg, backend.New(cfg.ClusterName, cfg.Egress, ctrlmetrics.Registry))
 	if err != nil {
 		setupLog.Error(err, "unable to setup controller")
 		os.Exit(1)

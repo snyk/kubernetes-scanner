@@ -21,12 +21,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"path"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	promclient "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -63,7 +67,7 @@ func TestBackend(t *testing.T) {
 		HTTPClientTimeout:       metav1.Duration{Duration: 1 * time.Second},
 		SnykAPIBaseURL:          ts.URL,
 		SnykServiceAccountToken: testToken,
-	})
+	}, prometheus.NewPedanticRegistry())
 	err := b.Upsert(ctx, pod, "v1", orgID, nil)
 	require.NoError(t, err)
 
@@ -84,10 +88,35 @@ func TestBackendErrorHandling(t *testing.T) {
 		HTTPClientTimeout:       metav1.Duration{Duration: 1 * time.Second},
 		SnykAPIBaseURL:          ts.URL,
 		SnykServiceAccountToken: testToken,
-	})
+	}, prometheus.NewPedanticRegistry())
 
 	err := b.Upsert(ctx, pod, "v1", orgID, nil)
 	require.Error(t, err)
+}
+
+func TestMetricsFromBackend(t *testing.T) {
+	const orgID = "org-123"
+	ctx := context.Background()
+	tu := testUpstream{t: t, preferredVersion: "v1", orgID: orgID, auth: testToken, statusCodeToReturn: 400}
+	ts := httptest.NewServer(http.HandlerFunc(tu.Handle))
+	defer ts.Close()
+
+	b := New("my-pet-cluster", &config.Egress{
+		HTTPClientTimeout:       metav1.Duration{Duration: 1 * time.Second},
+		SnykAPIBaseURL:          ts.URL,
+		SnykServiceAccountToken: testToken,
+	}, prometheus.NewPedanticRegistry())
+
+	err := b.Upsert(ctx, pod, "v1", orgID, nil)
+	require.Error(t, err)
+	require.Equal(t, uint8(1), b.failures[pod.UID].retries)
+	require.Equal(t, 400, b.failures[pod.UID].code)
+
+	tu.statusCodeToReturn = 0
+	err = b.Upsert(ctx, pod, "v1", orgID, nil)
+	require.NoError(t, err)
+	_, ok := b.failures[pod.UID]
+	require.False(t, ok)
 }
 
 type testUpstream struct {
@@ -150,6 +179,7 @@ var pod = &corev1.Pod{
 	ObjectMeta: metav1.ObjectMeta{
 		Name:      "normal-pod",
 		Namespace: "default",
+		UID:       types.UID("21E430E3-FA43-45B9-B5EC-AE27FFA16D82"),
 	},
 	TypeMeta: metav1.TypeMeta{
 		Kind:       "Pod",
@@ -199,7 +229,7 @@ func (r *resource) UnmarshalJSON(data []byte) error {
 }
 
 func TestJSONMatches(t *testing.T) {
-	b := New("my pet cluster", &config.Egress{})
+	b := New("my pet cluster", &config.Egress{}, prometheus.NewPedanticRegistry())
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "a-pod",
@@ -250,4 +280,130 @@ func TestJSONMatches(t *testing.T) {
 	}
 }`
 	require.Equal(t, expectedJSON, prettyJSON.String())
+}
+
+func TestMetricsRetries(t *testing.T) {
+	var (
+		ctx          = context.Background()
+		testFailures = map[types.UID]int{
+			"a": 1, "b": 6, "c": 5,
+			"d": 2, "e": 1, "f": 4,
+			"g": 3, "h": 3, "i": 1,
+			"j": 40, "k": 0, "l": 8,
+		}
+		// see the retriesBuckets var for the bucket values.
+		// the actual values have been "calculated" manually.
+		expectedBucketSizes = []uint64{3, 4, 6, 8, 10, 11}
+		registry            = prometheus.NewPedanticRegistry()
+		m                   = newMetrics(registry)
+		failures            = make(chan types.UID)
+		wg                  sync.WaitGroup
+	)
+	const metricName = "kubernetes_scanner_backend_retries"
+
+	// we spawn some goroutines to recordFailures so that we can
+	// make sure they're thread-safe.
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				uid, ok := <-failures
+				if !ok {
+					return
+				}
+				m.recordFailure(ctx, 404, uid)
+			}
+		}()
+	}
+
+	// send all the required failures into the channels
+	var allFailuresDone bool
+	for !allFailuresDone {
+		allFailuresDone = true
+		for uid, numFailures := range testFailures {
+			if numFailures == 0 {
+				continue
+			}
+			failures <- uid
+			testFailures[uid]--
+			allFailuresDone = false
+
+		}
+	}
+
+	close(failures)
+	wg.Wait()
+
+	// now mark all requests as successful. We can't do that above
+	// because we need to make sure that these calls come strictly
+	// after m.recordFailure calls to get the right count. However
+	// because we still want to test that calls to m.recordSuccess
+	// are also thread-safe, we spawn a goroutine for each call as
+	// well.
+	wg.Add(len(testFailures))
+	for uid := range testFailures {
+		go func(uid types.UID) {
+			defer wg.Done()
+			m.recordSuccess(ctx, uid)
+		}(uid)
+	}
+	wg.Wait()
+
+	requireMetric(t, registry, metricName, func(t *testing.T, metric *promclient.Metric) {
+		for i, bucket := range metric.Histogram.Bucket {
+			require.Equal(t, expectedBucketSizes[i], *bucket.CumulativeCount)
+		}
+	})
+}
+
+func TestMetricsOldest(t *testing.T) {
+	ctx := context.Background()
+	registry := prometheus.NewPedanticRegistry()
+	m := newMetrics(registry)
+	const metricName = "kubernetes_scanner_backend_oldest_failure"
+
+	t.Run("cleanup with no other failures", func(t *testing.T) {
+		m.recordFailure(ctx, 403, "x")
+		requireGauge(t, registry, metricName, float64(*m.failures["x"].added))
+
+		m.recordSuccess(ctx, "x")
+		requireGauge(t, registry, metricName, math.Inf(0))
+	})
+
+	t.Run("cleanup with replacement", func(t *testing.T) {
+		m.recordFailure(ctx, 403, "a")
+		requireGauge(t, registry, metricName, float64(*m.failures["a"].added))
+
+		m.recordFailure(ctx, 403, "b")
+		requireGauge(t, registry, metricName, float64(*m.failures["a"].added))
+
+		m.recordSuccess(ctx, "a")
+		requireGauge(t, registry, metricName, float64(*m.failures["b"].added))
+	})
+}
+
+// requireMetrics requires the given metric to be present in the registry and pass the requireFn.
+func requireMetric(t *testing.T, registry prometheus.Gatherer, metricName string,
+	requireFn func(*testing.T, *promclient.Metric),
+) {
+	t.Helper()
+	metrics, err := registry.Gather()
+	require.NoError(t, err)
+
+	for _, m := range metrics {
+		if *m.Name == metricName {
+			requireFn(t, m.GetMetric()[0])
+			return
+		}
+	}
+	t.Fatalf("metric %v is not present in registry", metricName)
+}
+
+// requireGauge requires the given metric to be present in the registry with the expected value.
+func requireGauge(t *testing.T, registry prometheus.Gatherer, metricName string, expected float64) {
+	t.Helper()
+	requireMetric(t, registry, metricName, func(t *testing.T, metric *promclient.Metric) {
+		require.Equal(t, expected, metric.Gauge.GetValue())
+	})
 }

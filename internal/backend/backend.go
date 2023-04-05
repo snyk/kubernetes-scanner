@@ -21,11 +21,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"strconv"
+	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/snyk/kubernetes-scanner/internal/config"
 )
@@ -36,9 +42,11 @@ type Backend struct {
 	authorizationKey string
 
 	client *http.Client
+
+	*metrics
 }
 
-func New(clusterName string, cfg *config.Egress) *Backend {
+func New(clusterName string, cfg *config.Egress, reg prometheus.Registerer) *Backend {
 	return &Backend{
 		apiEndpoint:      cfg.SnykAPIBaseURL,
 		clusterName:      clusterName,
@@ -49,6 +57,8 @@ func New(clusterName string, cfg *config.Egress) *Backend {
 			Transport: http.DefaultTransport,
 			Timeout:   cfg.HTTPClientTimeout.Duration,
 		},
+
+		metrics: newMetrics(reg),
 	}
 }
 
@@ -72,17 +82,21 @@ func (b *Backend) Upsert(ctx context.Context, obj client.Object, preferredVersio
 
 	resp, err := b.client.Do(req.WithContext(ctx))
 	if err != nil {
+		b.recordFailure(ctx, 0, obj.GetUID())
 		return fmt.Errorf("could not post resource: %w", err)
 	}
 	defer resp.Body.Close()
+
 	if resp.StatusCode >= 300 || resp.StatusCode < 200 {
 		body, err := io.ReadAll(resp.Body)
+		b.recordFailure(ctx, resp.StatusCode, obj.GetUID())
 		if err != nil {
-			return fmt.Errorf("got non-zero exit code %v and could not read body: %w", resp.StatusCode, err)
+			return fmt.Errorf("got non-20x HTTP code %v and could not read body: %w", resp.StatusCode, err)
 		}
-		return fmt.Errorf("got non-zero exit code %v with body %s", resp.StatusCode, body)
+		return fmt.Errorf("got non-20x exit code %v with body %s", resp.StatusCode, body)
 	}
 
+	b.recordSuccess(ctx, obj.GetUID())
 	return nil
 }
 
@@ -130,4 +144,109 @@ type resource struct {
 	PreferredVersion string        `json:"preferred_version"`
 	ScannedAt        metav1.Time   `json:"scanned_at"`
 	DeletedAt        *metav1.Time  `json:"deleted_at,omitempty"`
+}
+
+type metrics struct {
+	sync.Mutex
+	failures map[types.UID]*upsertFailure
+	oldest   *int64
+
+	retries       *prometheus.HistogramVec
+	oldestFailure prometheus.Gauge
+}
+
+var retriesBuckets = []float64{1, 2, 3, 5, 10, 50}
+
+func newMetrics(registry prometheus.Registerer) *metrics {
+	m := &metrics{
+		failures: make(map[types.UID]*upsertFailure),
+		oldest:   nil,
+
+		retries: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace: "kubernetes_scanner",
+				Name:      "backend_retries",
+				Help:      "Number of retries until resources were upserted successfully, partinioned by their last failure code",
+				Buckets:   retriesBuckets,
+			},
+			[]string{"code"},
+		),
+		oldestFailure: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "kubernetes_scanner",
+			Name:      "backend_oldest_failure",
+			Help:      "A timestamp of when the oldest resource has been tried the first time",
+		}),
+	}
+	registry.MustRegister(m.oldestFailure, m.retries)
+
+	// we need to set an initial value so that it is not 0.
+	m.oldestFailure.Set(math.Inf(0))
+
+	return m
+}
+
+func (m *metrics) recordFailure(ctx context.Context, code int, uid types.UID) {
+	m.Lock()
+	defer m.Unlock()
+
+	if f, ok := m.failures[uid]; ok {
+		f.retries++
+		f.code = code
+	} else {
+		now := time.Now().Unix()
+		fail := &upsertFailure{
+			code:    code,
+			added:   &now,
+			retries: 1,
+		}
+		m.failures[uid] = fail
+		if m.oldest == nil {
+			m.oldestFailure.Set(float64(now))
+			m.oldest = &now
+			log.FromContext(ctx).Info("set oldest failure", "new", uid)
+		}
+	}
+}
+
+func (m *metrics) recordSuccess(ctx context.Context, uid types.UID) {
+	m.Lock()
+	defer m.Unlock()
+
+	fail, ok := m.failures[uid]
+	if !ok {
+		return
+	}
+
+	m.retries.With(prometheus.Labels{
+		"code": strconv.Itoa(fail.code),
+	}).Observe(float64(fail.retries))
+
+	delete(m.failures, uid)
+
+	// if we're deleting the oldest element, replace it with the new oldest element.
+	if m.oldest == fail.added {
+		m.oldest = nil
+
+		var newUID types.UID
+		for uid, newFail := range m.failures {
+			if m.oldest == nil || *m.oldest > *newFail.added {
+				m.oldest = newFail.added
+				newUID = uid
+			}
+		}
+
+		if m.oldest == nil {
+			m.oldestFailure.Set(math.Inf(0))
+			log.FromContext(ctx).Info("removed oldest failure, no new ones", "old", uid)
+		} else {
+			m.oldestFailure.Set(float64(*m.oldest))
+			log.FromContext(ctx).Info("replaced oldest failure", "old", uid, "new", newUID)
+		}
+	}
+}
+
+type upsertFailure struct {
+	retries uint8
+	code    int
+	added   *int64
 }
