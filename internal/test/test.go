@@ -16,13 +16,19 @@
 package test
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"os"
 	"testing"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 )
 
@@ -86,4 +92,16 @@ func GenerateKubeconfig(t *testing.T, restCfg *rest.Config) (filename string) {
 		t.Fatalf("could not write kubeconfig: %v", err)
 	}
 	return file.Name()
+}
+
+func WaitForAPI(ctx context.Context, c client.Client) error {
+	for {
+		if err := c.Get(ctx, types.NamespacedName{Name: "default"}, &corev1.Namespace{}); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				return fmt.Errorf("timeout waiting for API to be ready")
+			}
+			continue
+		}
+		return nil
+	}
 }
