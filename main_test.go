@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/snyk/kubernetes-scanner/internal/backend"
 	"testing"
 	"time"
 
@@ -246,13 +247,16 @@ func newFakeBackend() *fakeBackend {
 	}
 }
 
-func (f *fakeBackend) Upsert(ctx context.Context, requestID string, obj client.Object, preferredVersion, orgID string, deletedAt *metav1.Time) error {
-	rID := newResourceID(obj, orgID)
+func (f *fakeBackend) Upsert(ctx context.Context, requestID string, orgID string, kubeObjects []backend.KubeObj) error {
 
-	if deletedAt == nil {
-		f.reconciled <- rID
-	} else {
-		f.deleted <- rID
+	for _, obj := range kubeObjects {
+		rID := newResourceID(obj.Obj, orgID)
+
+		if obj.DeletedAt == nil {
+			f.reconciled <- rID
+		} else {
+			f.deleted <- rID
+		}
 	}
 
 	return nil

@@ -64,8 +64,14 @@ func New(clusterName string, cfg *config.Egress, reg prometheus.Registerer) *Bac
 
 const contentTypeJSON = "application/vnd.api+json"
 
-func (b *Backend) Upsert(ctx context.Context, requestID string, obj client.Object, preferredVersion string, orgID string, deletedAt *metav1.Time) error {
-	body, err := b.newPostBody(obj, preferredVersion, deletedAt)
+type KubeObj struct {
+	Obj              client.Object
+	PreferredVersion string
+	DeletedAt        *metav1.Time
+}
+
+func (b *Backend) Upsert(ctx context.Context, requestID string, orgID string, kubeObjects []KubeObj) error {
+	body, err := b.newPostBody(kubeObjects)
 	if err != nil {
 		return fmt.Errorf("could not construct request body: %w", err)
 	}
@@ -83,7 +89,9 @@ func (b *Backend) Upsert(ctx context.Context, requestID string, obj client.Objec
 
 	resp, err := b.client.Do(req.WithContext(ctx))
 	if err != nil {
-		b.recordFailure(ctx, 0, obj.GetUID())
+		for _, obj := range kubeObjects {
+			b.recordFailure(ctx, 0, obj.Obj.GetUID())
+		}
 		return fmt.Errorf("could not post resource: %w", err)
 	}
 	defer resp.Body.Close()
@@ -93,7 +101,9 @@ func (b *Backend) Upsert(ctx context.Context, requestID string, obj client.Objec
 			fmt.Errorf("received HTTP response code %d", resp.StatusCode),
 			"error response HTTP headers",
 		)
-		b.recordFailure(ctx, resp.StatusCode, obj.GetUID())
+		for _, obj := range kubeObjects {
+			b.recordFailure(ctx, resp.StatusCode, obj.Obj.GetUID())
+		}
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return fmt.Errorf("got non-20x HTTP code %v and could not read body: %w", resp.StatusCode, err)
@@ -101,25 +111,32 @@ func (b *Backend) Upsert(ctx context.Context, requestID string, obj client.Objec
 		return fmt.Errorf("got non-20x exit code %v with body %s", resp.StatusCode, body)
 	}
 
-	b.recordSuccess(ctx, obj.GetUID())
+	for _, obj := range kubeObjects {
+		b.recordSuccess(ctx, obj.Obj.GetUID())
+	}
 	return nil
 }
 
 // for testing.
 var now = time.Now
 
-func (b *Backend) newPostBody(obj client.Object, preferredVersion string, deletedAt *metav1.Time) (io.Reader, error) {
+func (b *Backend) newPostBody(kubeObjects []KubeObj) (io.Reader, error) {
+	rs := make([]resource, len(kubeObjects))
+	now := metav1.Time{Time: now()}
+	for i := 0; i < len(kubeObjects); i++ {
+		rs[i] = resource{
+			ScannedAt:        now,
+			ManifestBlob:     kubeObjects[i].Obj,
+			PreferredVersion: kubeObjects[i].PreferredVersion,
+			DeletedAt:        kubeObjects[i].DeletedAt,
+		}
+	}
 	r := &request{
 		Data: requestData{
-			Type: "kubernetesresource",
+			Type: "kubernetes_resource",
 			Attributes: requestAttributes{
 				ClusterName: b.clusterName,
-				Resources: []resource{{
-					ScannedAt:        metav1.Time{Time: now()},
-					ManifestBlob:     obj,
-					PreferredVersion: preferredVersion,
-					DeletedAt:        deletedAt,
-				}},
+				Resources:   rs,
 			},
 		},
 	}

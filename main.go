@@ -74,7 +74,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	mgr, err := setupController(cfg, backend.New(cfg.ClusterName, cfg.Egress, ctrlmetrics.Registry))
+	batchingBackend := backend.NewBatchingBackend(
+		backend.New(cfg.ClusterName, cfg.Egress, ctrlmetrics.Registry),
+		100, time.Second*10).Start()
+
+	mgr, err := setupController(cfg, batchingBackend)
 	if err != nil {
 		setupLog.Error(err, "unable to setup controller")
 		os.Exit(1)
@@ -145,7 +149,7 @@ type store interface {
 	// Upsert an object into the store. If the deletedAt time is non-zero, a deletion-event should
 	// be recorded. Otherwise, the store should simply ensure that the object saved in the store
 	// matches the one we're providing.
-	Upsert(ctx context.Context, requestID string, obj client.Object, preferredVersion, orgID string, deletedAt *metav1.Time) error
+	Upsert(ctx context.Context, requestID string, orgID string, kubeObjects []backend.KubeObj) error
 }
 
 func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -180,7 +184,13 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		obj.SetNamespace(req.Namespace)
 		// don't requeue after deletion.
 		now := metav1.Now()
-		err := r.store.Upsert(ctx, requestID, obj, r.gvk.PreferredVersion, r.orgID, &now)
+		err := r.store.Upsert(ctx, requestID, r.orgID, []backend.KubeObj{
+			{
+				Obj:              obj,
+				PreferredVersion: r.gvk.PreferredVersion,
+				DeletedAt:        &now,
+			},
+		})
 		if err != nil {
 			logger.Error(err, "could not publish deletion to store")
 		}
@@ -190,7 +200,13 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	logger = logger.WithValues("uid", obj.GetUID())
 	ctx = log.IntoContext(ctx, logger)
 
-	err := r.store.Upsert(ctx, requestID, obj, r.gvk.PreferredVersion, r.orgID, nil)
+	err := r.store.Upsert(ctx, requestID, r.orgID, []backend.KubeObj{
+		{
+			Obj:              obj,
+			PreferredVersion: r.gvk.PreferredVersion,
+			DeletedAt:        nil,
+		},
+	})
 	if err != nil {
 		logger.Error(err, "could not publish upsert to store")
 		return ctrl.Result{}, err

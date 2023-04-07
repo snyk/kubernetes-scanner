@@ -68,11 +68,23 @@ func TestBackend(t *testing.T) {
 		SnykAPIBaseURL:          ts.URL,
 		SnykServiceAccountToken: testToken,
 	}, prometheus.NewPedanticRegistry())
-	err := b.Upsert(ctx, "req-id", pod, "v1", orgID, nil)
+	err := b.Upsert(ctx, "req-id", orgID, []KubeObj{
+		{
+			Obj:              pod,
+			PreferredVersion: "v1",
+			DeletedAt:        nil,
+		},
+	})
 	require.NoError(t, err)
 
 	tu.expectDeletion = true
-	err = b.Upsert(ctx, "req-id", pod, "v1", orgID, &metav1.Time{Time: now().Local()})
+	err = b.Upsert(ctx, "req-id", orgID, []KubeObj{
+		{
+			Obj:              pod,
+			PreferredVersion: "v1",
+			DeletedAt:        &metav1.Time{Time: now().Local()},
+		},
+	})
 	require.NoError(t, err)
 
 }
@@ -90,7 +102,13 @@ func TestBackendErrorHandling(t *testing.T) {
 		SnykServiceAccountToken: testToken,
 	}, prometheus.NewPedanticRegistry())
 
-	err := b.Upsert(ctx, "req-id", pod, "v1", orgID, nil)
+	err := b.Upsert(ctx, "req-id", orgID, []KubeObj{
+		{
+			Obj:              pod,
+			PreferredVersion: "v1",
+			DeletedAt:        nil,
+		},
+	})
 	require.Error(t, err)
 }
 
@@ -107,13 +125,25 @@ func TestMetricsFromBackend(t *testing.T) {
 		SnykServiceAccountToken: testToken,
 	}, prometheus.NewPedanticRegistry())
 
-	err := b.Upsert(ctx, "req-id", pod, "v1", orgID, nil)
+	err := b.Upsert(ctx, "req-id", orgID, []KubeObj{
+		{
+			Obj:              pod,
+			PreferredVersion: "v1",
+			DeletedAt:        nil,
+		},
+	})
 	require.Error(t, err)
 	require.Equal(t, uint8(1), b.failures[pod.UID].retries)
 	require.Equal(t, 400, b.failures[pod.UID].code)
 
 	tu.statusCodeToReturn = 0
-	err = b.Upsert(ctx, "req-id", pod, "v1", orgID, nil)
+	err = b.Upsert(ctx, "req-id", orgID, []KubeObj{
+		{
+			Obj:              pod,
+			PreferredVersion: "v1",
+			DeletedAt:        nil,
+		},
+	})
 	require.NoError(t, err)
 	_, ok := b.failures[pod.UID]
 	require.False(t, ok)
@@ -241,7 +271,13 @@ func TestJSONMatches(t *testing.T) {
 			Kind:       "Pod",
 		},
 	}
-	r, err := b.newPostBody(pod, "v1", nil)
+	r, err := b.newPostBody([]KubeObj{
+		{
+			Obj:              pod,
+			PreferredVersion: "v1",
+			DeletedAt:        nil,
+		},
+	})
 	require.NoError(t, err)
 
 	body, err := io.ReadAll(r)
@@ -253,7 +289,7 @@ func TestJSONMatches(t *testing.T) {
 
 	const expectedJSON = `{
 	"data": {
-		"type": "kubernetesresource",
+		"type": "kubernetes_resource",
 		"attributes": {
 			"cluster_name": "my pet cluster",
 			"resources": [
