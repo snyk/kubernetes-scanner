@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/google/uuid"
 	"io"
 	"math"
 	"net/http"
@@ -64,10 +65,11 @@ func New(clusterName string, cfg *config.Egress, reg prometheus.Registerer) *Bac
 
 const contentTypeJSON = "application/vnd.api+json"
 
-func (b *Backend) Upsert(ctx context.Context, obj client.Object, preferredVersion string, orgID string, deletedAt *metav1.Time) error {
+func (b *Backend) Upsert(ctx context.Context, obj client.Object, preferredVersion string, orgID string, deletedAt *metav1.Time) (string, error) {
+	requestID := uuid.New().String()
 	body, err := b.newPostBody(obj, preferredVersion, deletedAt)
 	if err != nil {
-		return fmt.Errorf("could not construct request body: %w", err)
+		return requestID, fmt.Errorf("could not construct request body: %w", err)
 	}
 
 	endpoint := fmt.Sprintf("%s/hidden/orgs/%s/kubernetes_resources?version=2023-02-20~experimental",
@@ -75,15 +77,16 @@ func (b *Backend) Upsert(ctx context.Context, obj client.Object, preferredVersio
 
 	req, err := http.NewRequest(http.MethodPost, endpoint, body)
 	if err != nil {
-		return fmt.Errorf("could not construct request: %w", err)
+		return requestID, fmt.Errorf("could not construct request: %w", err)
 	}
 	req.Header.Add("Content-Type", contentTypeJSON)
 	req.Header.Add("Authorization", "token "+b.authorizationKey)
+	req.Header.Add("snyk-request-id", requestID)
 
 	resp, err := b.client.Do(req.WithContext(ctx))
 	if err != nil {
 		b.recordFailure(ctx, 0, obj.GetUID())
-		return fmt.Errorf("could not post resource: %w", err)
+		return requestID, fmt.Errorf("could not post resource: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -91,13 +94,13 @@ func (b *Backend) Upsert(ctx context.Context, obj client.Object, preferredVersio
 		body, err := io.ReadAll(resp.Body)
 		b.recordFailure(ctx, resp.StatusCode, obj.GetUID())
 		if err != nil {
-			return fmt.Errorf("got non-20x HTTP code %v and could not read body: %w", resp.StatusCode, err)
+			return requestID, fmt.Errorf("got non-20x HTTP code %v and could not read body: %w", resp.StatusCode, err)
 		}
-		return fmt.Errorf("got non-20x exit code %v with body %s", resp.StatusCode, body)
+		return requestID, fmt.Errorf("got non-20x exit code %v with body %s", resp.StatusCode, body)
 	}
 
 	b.recordSuccess(ctx, obj.GetUID())
-	return nil
+	return requestID, nil
 }
 
 // for testing.

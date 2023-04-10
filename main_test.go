@@ -246,7 +246,7 @@ func newFakeBackend() *fakeBackend {
 	}
 }
 
-func (f *fakeBackend) Upsert(ctx context.Context, obj client.Object, preferredVersion, orgID string, deletedAt *metav1.Time) error {
+func (f *fakeBackend) Upsert(ctx context.Context, obj client.Object, preferredVersion, orgID string, deletedAt *metav1.Time) (string, error) {
 	rID := newResourceID(obj, orgID)
 
 	if deletedAt == nil {
@@ -255,7 +255,7 @@ func (f *fakeBackend) Upsert(ctx context.Context, obj client.Object, preferredVe
 		f.deleted <- rID
 	}
 
-	return nil
+	return "uid", nil
 }
 
 type reconciliationEvents struct {
