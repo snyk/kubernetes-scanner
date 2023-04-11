@@ -19,6 +19,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/google/uuid"
 	"os"
 	"time"
 
@@ -144,16 +145,19 @@ type store interface {
 	// Upsert an object into the store. If the deletedAt time is non-zero, a deletion-event should
 	// be recorded. Otherwise, the store should simply ensure that the object saved in the store
 	// matches the one we're providing.
-	Upsert(ctx context.Context, obj client.Object, preferredVersion, orgID string, deletedAt *metav1.Time) error
+	Upsert(ctx context.Context, requestID string, obj client.Object, preferredVersion, orgID string, deletedAt *metav1.Time) error
 }
 
 func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+
+	requestID := uuid.New().String()
 	log := log.FromContext(ctx).WithValues(
 		"group", r.gvk.Group,
 		"version", r.gvk.Version,
 		"kind", r.gvk.Kind,
 		"name", req.Name,
 		"namespace", req.Namespace,
+		"request_id", requestID,
 	)
 	log.Info("reconciling resource")
 
@@ -177,10 +181,19 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		obj.SetNamespace(req.Namespace)
 		// don't requeue after deletion.
 		now := metav1.Now()
-		return ctrl.Result{}, r.store.Upsert(ctx, obj, r.gvk.PreferredVersion, r.orgID, &now)
+		err := r.store.Upsert(ctx, requestID, obj, r.gvk.PreferredVersion, r.orgID, &now)
+		if err != nil {
+			log.Error(err, "could not publish deletion to store")
+		}
+		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{RequeueAfter: r.requeueAfter}, r.store.Upsert(ctx, obj, r.gvk.PreferredVersion, r.orgID, nil)
+	err := r.store.Upsert(ctx, requestID, obj, r.gvk.PreferredVersion, r.orgID, nil)
+	if err != nil {
+		log.Error(err, "could not publish upsert to store")
+	}
+
+	return ctrl.Result{RequeueAfter: r.requeueAfter}, err
 }
 
 // SetupWithManager sets up the controller with the Manager.

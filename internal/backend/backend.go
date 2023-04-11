@@ -64,7 +64,7 @@ func New(clusterName string, cfg *config.Egress, reg prometheus.Registerer) *Bac
 
 const contentTypeJSON = "application/vnd.api+json"
 
-func (b *Backend) Upsert(ctx context.Context, obj client.Object, preferredVersion string, orgID string, deletedAt *metav1.Time) error {
+func (b *Backend) Upsert(ctx context.Context, requestID string, obj client.Object, preferredVersion string, orgID string, deletedAt *metav1.Time) error {
 	body, err := b.newPostBody(obj, preferredVersion, deletedAt)
 	if err != nil {
 		return fmt.Errorf("could not construct request body: %w", err)
@@ -79,6 +79,7 @@ func (b *Backend) Upsert(ctx context.Context, obj client.Object, preferredVersio
 	}
 	req.Header.Add("Content-Type", contentTypeJSON)
 	req.Header.Add("Authorization", "token "+b.authorizationKey)
+	req.Header.Add("snyk-request-id", requestID)
 
 	resp, err := b.client.Do(req.WithContext(ctx))
 	if err != nil {
