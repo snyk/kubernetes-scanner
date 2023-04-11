@@ -49,7 +49,9 @@ func main() {
 		configFile   = flag.String("config", "/etc/kubernetes-scanner/config.yaml", "defines the location of the config file")
 		showLicenses = flag.Bool("licenses", false, "show license information")
 		logOpts      = zap.Options{
-			Development: true,
+			// The various `zap-` flags in this struct definition can be passed to
+			// this program due to the call to BindFlags() below. None of this is
+			// exposed through helm, yet - a decision we might revisit.
 		}
 	)
 
