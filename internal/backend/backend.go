@@ -151,8 +151,8 @@ type metrics struct {
 	failures map[types.UID]*upsertFailure
 	oldest   *int64
 
-	retries       *prometheus.HistogramVec
-	oldestFailure prometheus.Gauge
+	retries                *prometheus.HistogramVec
+	oldestFailureTimestamp prometheus.Gauge
 }
 
 var retriesBuckets = []float64{1, 2, 3, 5, 10, 50}
@@ -166,21 +166,21 @@ func newMetrics(registry prometheus.Registerer) *metrics {
 			prometheus.HistogramOpts{
 				Namespace: "kubernetes_scanner",
 				Name:      "backend_retries",
-				Help:      "Number of retries until resources were upserted successfully, partinioned by their last failure code",
+				Help:      "Number of retries until resources were upserted successfully, partitioned by their last failure code",
 				Buckets:   retriesBuckets,
 			},
 			[]string{"code"},
 		),
-		oldestFailure: prometheus.NewGauge(prometheus.GaugeOpts{
+		oldestFailureTimestamp: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "kubernetes_scanner",
 			Name:      "backend_oldest_failure",
-			Help:      "A timestamp of when the oldest resource has been tried the first time",
+			Help:      "A timestamp of when the oldest unreconciled resource first failed reconciliation",
 		}),
 	}
-	registry.MustRegister(m.oldestFailure, m.retries)
+	registry.MustRegister(m.oldestFailureTimestamp, m.retries)
 
 	// we need to set an initial value so that it is not 0.
-	m.oldestFailure.Set(math.Inf(0))
+	m.oldestFailureTimestamp.Set(math.Inf(0))
 
 	return m
 }
@@ -201,7 +201,7 @@ func (m *metrics) recordFailure(ctx context.Context, code int, uid types.UID) {
 		}
 		m.failures[uid] = fail
 		if m.oldest == nil {
-			m.oldestFailure.Set(float64(now))
+			m.oldestFailureTimestamp.Set(float64(now))
 			m.oldest = &now
 			log.FromContext(ctx).Info("set oldest failure", "new", uid)
 		}
@@ -236,10 +236,10 @@ func (m *metrics) recordSuccess(ctx context.Context, uid types.UID) {
 		}
 
 		if m.oldest == nil {
-			m.oldestFailure.Set(math.Inf(0))
+			m.oldestFailureTimestamp.Set(math.Inf(0))
 			log.FromContext(ctx).Info("removed oldest failure, no new ones", "old", uid)
 		} else {
-			m.oldestFailure.Set(float64(*m.oldest))
+			m.oldestFailureTimestamp.Set(float64(*m.oldest))
 			log.FromContext(ctx).Info("replaced oldest failure", "old", uid, "new", newUID)
 		}
 	}
