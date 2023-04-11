@@ -383,6 +383,15 @@ func TestMetricsOldest(t *testing.T) {
 	})
 }
 
+func TestMetricsErrors(t *testing.T) {
+	registry := prometheus.NewPedanticRegistry()
+	m := newMetrics(registry)
+	m.recordFailure(context.Background(), 500, "a-uid")
+	requireMetric(t, registry, "kubernetes_scanner_backend_errors_total", func(t *testing.T, metric *promclient.Metric) {
+		require.Equal(t, 1.0, metric.Counter.GetValue())
+	})
+}
+
 // requireMetrics requires the given metric to be present in the registry and pass the requireFn.
 func requireMetric(t *testing.T, registry prometheus.Gatherer, metricName string,
 	requireFn func(*testing.T, *promclient.Metric),

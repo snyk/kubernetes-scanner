@@ -152,6 +152,7 @@ type metrics struct {
 	oldest   *int64
 
 	retries                *prometheus.HistogramVec
+	errors                 *prometheus.CounterVec
 	oldestFailureTimestamp prometheus.Gauge
 }
 
@@ -171,13 +172,21 @@ func newMetrics(registry prometheus.Registerer) *metrics {
 			},
 			[]string{"code"},
 		),
+		errors: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "kubernetes_scanner",
+				Name:      "backend_errors_total",
+				Help:      "Number of errors sending resources to the backend",
+			},
+			[]string{"code"},
+		),
 		oldestFailureTimestamp: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "kubernetes_scanner",
 			Name:      "backend_oldest_failure",
 			Help:      "A timestamp of when the oldest unreconciled resource first failed reconciliation",
 		}),
 	}
-	registry.MustRegister(m.oldestFailureTimestamp, m.retries)
+	registry.MustRegister(m.oldestFailureTimestamp, m.retries, m.errors)
 
 	// we need to set an initial value so that it is not 0.
 	m.oldestFailureTimestamp.Set(math.Inf(0))
@@ -189,6 +198,9 @@ func (m *metrics) recordFailure(ctx context.Context, code int, uid types.UID) {
 	m.Lock()
 	defer m.Unlock()
 
+	m.errors.With(prometheus.Labels{
+		"code": strconv.Itoa(code),
+	}).Inc()
 	if f, ok := m.failures[uid]; ok {
 		f.retries++
 		f.code = code
