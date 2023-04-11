@@ -68,14 +68,12 @@ func TestBackend(t *testing.T) {
 		SnykAPIBaseURL:          ts.URL,
 		SnykServiceAccountToken: testToken,
 	}, prometheus.NewPedanticRegistry())
-	requestID, err := b.Upsert(ctx, pod, "v1", orgID, nil)
+	err := b.Upsert(ctx, "req-id", pod, "v1", orgID, nil)
 	require.NoError(t, err)
-	require.NotEmpty(t, requestID)
 
 	tu.expectDeletion = true
-	requestID, err = b.Upsert(ctx, pod, "v1", orgID, &metav1.Time{Time: now().Local()})
+	err = b.Upsert(ctx, "req-id", pod, "v1", orgID, &metav1.Time{Time: now().Local()})
 	require.NoError(t, err)
-	require.NotEmpty(t, requestID)
 
 }
 
@@ -92,7 +90,7 @@ func TestBackendErrorHandling(t *testing.T) {
 		SnykServiceAccountToken: testToken,
 	}, prometheus.NewPedanticRegistry())
 
-	_, err := b.Upsert(ctx, pod, "v1", orgID, nil)
+	err := b.Upsert(ctx, "req-id", pod, "v1", orgID, nil)
 	require.Error(t, err)
 }
 
@@ -109,16 +107,14 @@ func TestMetricsFromBackend(t *testing.T) {
 		SnykServiceAccountToken: testToken,
 	}, prometheus.NewPedanticRegistry())
 
-	requestID, err := b.Upsert(ctx, pod, "v1", orgID, nil)
+	err := b.Upsert(ctx, "req-id", pod, "v1", orgID, nil)
 	require.Error(t, err)
-	require.NotEmpty(t, requestID)
 	require.Equal(t, uint8(1), b.failures[pod.UID].retries)
 	require.Equal(t, 400, b.failures[pod.UID].code)
 
 	tu.statusCodeToReturn = 0
-	requestID, err = b.Upsert(ctx, pod, "v1", orgID, nil)
+	err = b.Upsert(ctx, "req-id", pod, "v1", orgID, nil)
 	require.NoError(t, err)
-	require.NotEmpty(t, requestID)
 	_, ok := b.failures[pod.UID]
 	require.False(t, ok)
 }
