@@ -223,7 +223,7 @@ func (m *metrics) recordFailure(ctx context.Context, code int, uid types.UID) {
 		if m.oldest == nil {
 			m.oldestFailureTimestamp.Set(float64(now))
 			m.oldest = &now
-			log.FromContext(ctx).Info("set oldest failure", "new", uid)
+			log.FromContext(ctx).Info("set oldest failure")
 		}
 	}
 }
@@ -257,10 +257,10 @@ func (m *metrics) recordSuccess(ctx context.Context, uid types.UID) {
 
 		if m.oldest == nil {
 			m.oldestFailureTimestamp.Set(math.Inf(0))
-			log.FromContext(ctx).Info("removed oldest failure, no new ones", "old", uid)
+			log.FromContext(ctx).Info("removed oldest failure, no new ones")
 		} else {
 			m.oldestFailureTimestamp.Set(float64(*m.oldest))
-			log.FromContext(ctx).Info("replaced oldest failure", "old", uid, "new", newUID)
+			log.FromContext(ctx).Info("replaced oldest failure", "new_oldest_failure", newUID)
 		}
 	}
 }

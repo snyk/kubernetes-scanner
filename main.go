@@ -19,7 +19,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/google/uuid"
 	"os"
 	"time"
 
@@ -28,6 +27,7 @@ import (
 	"github.com/snyk/kubernetes-scanner/internal/config"
 	"github.com/snyk/kubernetes-scanner/licenses"
 
+	"github.com/google/uuid"
 	"golang.org/x/exp/slices"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -149,9 +149,8 @@ type store interface {
 }
 
 func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-
 	requestID := uuid.New().String()
-	log := log.FromContext(ctx).WithValues(
+	logger := log.FromContext(ctx).WithValues(
 		"group", r.gvk.Group,
 		"version", r.gvk.Version,
 		"kind", r.gvk.Kind,
@@ -159,13 +158,13 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		"namespace", req.Namespace,
 		"request_id", requestID,
 	)
-	log.Info("reconciling resource")
+	logger.Info("reconciling resource")
 
 	// as long as r.namespaces is set, we want to check it. It might be 0-length, which will skip
 	// all namespaced resources. This is expected behavior.
 	if req.Namespace != "" && r.namespaces != nil && !slices.Contains(r.namespaces, req.Namespace) {
 		// don't set the requeueafter, we don't need it.
-		log.V(1).Info("skipping resources as namespace is ignored")
+		logger.V(1).Info("skipping resources as namespace is ignored")
 		return ctrl.Result{}, nil
 	}
 
@@ -173,7 +172,7 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	obj.SetGroupVersionKind(r.gvk.GroupVersionKind)
 	if err := r.Get(ctx, req.NamespacedName, obj); err != nil {
 		if !kerrors.IsNotFound(err) {
-			log.Error(err, "could not get object from api server")
+			logger.Error(err, "could not get object from api server")
 			return ctrl.Result{}, fmt.Errorf("could not get referenced object %v: %w", req.NamespacedName, err)
 		}
 
@@ -183,17 +182,22 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		now := metav1.Now()
 		err := r.store.Upsert(ctx, requestID, obj, r.gvk.PreferredVersion, r.orgID, &now)
 		if err != nil {
-			log.Error(err, "could not publish deletion to store")
+			logger.Error(err, "could not publish deletion to store")
 		}
 		return ctrl.Result{}, err
 	}
 
+	logger = logger.WithValues("uid", obj.GetUID())
+	ctx = log.IntoContext(ctx, logger)
+
 	err := r.store.Upsert(ctx, requestID, obj, r.gvk.PreferredVersion, r.orgID, nil)
 	if err != nil {
-		log.Error(err, "could not publish upsert to store")
+		logger.Error(err, "could not publish upsert to store")
+		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{RequeueAfter: r.requeueAfter}, err
+	logger.Info("successful reconciliation")
+	return ctrl.Result{RequeueAfter: r.requeueAfter}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
