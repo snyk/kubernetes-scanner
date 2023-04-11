@@ -358,12 +358,18 @@ func TestMetricsRetries(t *testing.T) {
 }
 
 func TestMetricsOldest(t *testing.T) {
-	ctx := context.Background()
-	registry := prometheus.NewPedanticRegistry()
-	m := newMetrics(registry)
 	const metricName = "kubernetes_scanner_backend_oldest_failure"
 
+	setup := func() (*metrics, *prometheus.Registry) {
+		registry := prometheus.NewPedanticRegistry()
+		m := newMetrics(registry)
+		return m, registry
+	}
+
+	ctx := context.Background()
 	t.Run("cleanup with no other failures", func(t *testing.T) {
+		m, registry := setup()
+
 		m.recordFailure(ctx, 403, "x")
 		requireGauge(t, registry, metricName, float64(*m.failures["x"].added))
 
@@ -372,6 +378,8 @@ func TestMetricsOldest(t *testing.T) {
 	})
 
 	t.Run("cleanup with replacement", func(t *testing.T) {
+		m, registry := setup()
+
 		m.recordFailure(ctx, 403, "a")
 		requireGauge(t, registry, metricName, float64(*m.failures["a"].added))
 
@@ -380,6 +388,23 @@ func TestMetricsOldest(t *testing.T) {
 
 		m.recordSuccess(ctx, "a")
 		requireGauge(t, registry, metricName, float64(*m.failures["b"].added))
+		m.recordSuccess(ctx, "b")
+	})
+
+	const ageMetricName = "kubernetes_scanner_backend_oldest_failure_age_seconds"
+	t.Run("test age", func(t *testing.T) {
+		m, registry := setup()
+
+		m.recordFailure(ctx, 403, "c")
+		requireGauge(t, registry, ageMetricName, 0)
+		// fast-forward time.
+		now = func() time.Time {
+			return timeNow.Add(50 * time.Second)
+		}
+		requireGauge(t, registry, ageMetricName, 50)
+
+		m.recordSuccess(ctx, "c")
+		requireGauge(t, registry, ageMetricName, math.Inf(0))
 	})
 }
 

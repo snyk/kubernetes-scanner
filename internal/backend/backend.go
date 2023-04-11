@@ -155,6 +155,7 @@ type metrics struct {
 	retries                *prometheus.HistogramVec
 	errors                 *prometheus.CounterVec
 	oldestFailureTimestamp prometheus.Gauge
+	oldestFailureAge       *prometheus.Desc
 }
 
 var retriesBuckets = []float64{1, 2, 3, 5, 10, 50}
@@ -186,8 +187,14 @@ func newMetrics(registry prometheus.Registerer) *metrics {
 			Name:      "backend_oldest_failure",
 			Help:      "A timestamp of when the oldest unreconciled resource first failed reconciliation",
 		}),
+		oldestFailureAge: prometheus.NewDesc(
+			"kubernetes_scanner_backend_oldest_failure_age_seconds",
+			"Age of the first failed reconciliation of the oldest unreconciled resource in seconds",
+			nil, nil,
+		),
 	}
-	registry.MustRegister(m.oldestFailureTimestamp, m.retries, m.errors)
+
+	registry.MustRegister(m)
 
 	// we need to set an initial value so that it is not 0.
 	m.oldestFailureTimestamp.Set(math.Inf(0))
@@ -206,7 +213,7 @@ func (m *metrics) recordFailure(ctx context.Context, code int, uid types.UID) {
 		f.retries++
 		f.code = code
 	} else {
-		now := time.Now().Unix()
+		now := now().Unix()
 		fail := &upsertFailure{
 			code:    code,
 			added:   &now,
@@ -262,4 +269,24 @@ type upsertFailure struct {
 	retries uint8
 	code    int
 	added   *int64
+}
+
+func (m *metrics) Collect(ch chan<- prometheus.Metric) {
+	age := math.Inf(0)
+	if m.oldest != nil {
+		age = float64(now().Unix() - *m.oldest)
+	}
+
+	ch <- prometheus.MustNewConstMetric(m.oldestFailureAge, prometheus.GaugeValue, age)
+
+	m.oldestFailureTimestamp.Collect(ch)
+	m.retries.Collect(ch)
+	m.errors.Collect(ch)
+}
+func (m *metrics) Describe(ch chan<- *prometheus.Desc) {
+	ch <- m.oldestFailureAge
+
+	m.oldestFailureTimestamp.Describe(ch)
+	m.retries.Describe(ch)
+	m.errors.Describe(ch)
 }
