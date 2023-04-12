@@ -157,6 +157,7 @@ type metrics struct {
 	oldest   *int64
 
 	retries                *prometheus.HistogramVec
+	retriesTotal           prometheus.Gauge
 	errors                 *prometheus.CounterVec
 	oldestFailureTimestamp prometheus.Gauge
 	oldestFailureAge       *prometheus.Desc
@@ -177,6 +178,13 @@ func newMetrics(registry prometheus.Registerer) *metrics {
 				Buckets:   retriesBuckets,
 			},
 			[]string{"code"},
+		),
+		retriesTotal: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Namespace: "kubernetes_scanner",
+				Name:      "unreconciled_resources_total",
+				Help:      "The number of unreconciled resources that are still in backoff-retry loops",
+			},
 		),
 		errors: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -224,6 +232,7 @@ func (m *metrics) recordFailure(ctx context.Context, code int, uid types.UID) {
 			retries: 1,
 		}
 		m.failures[uid] = fail
+		m.retriesTotal.Inc()
 		if m.oldest == nil {
 			m.oldestFailureTimestamp.Set(float64(now))
 			m.oldest = &now
@@ -246,6 +255,7 @@ func (m *metrics) recordSuccess(ctx context.Context, uid types.UID) {
 	}).Observe(float64(fail.retries))
 
 	delete(m.failures, uid)
+	m.retriesTotal.Dec()
 
 	// if we're deleting the oldest element, replace it with the new oldest element.
 	if m.oldest == fail.added {
@@ -284,6 +294,7 @@ func (m *metrics) Collect(ch chan<- prometheus.Metric) {
 	ch <- prometheus.MustNewConstMetric(m.oldestFailureAge, prometheus.GaugeValue, age)
 
 	m.oldestFailureTimestamp.Collect(ch)
+	m.retriesTotal.Collect(ch)
 	m.retries.Collect(ch)
 	m.errors.Collect(ch)
 }
@@ -291,6 +302,7 @@ func (m *metrics) Describe(ch chan<- *prometheus.Desc) {
 	ch <- m.oldestFailureAge
 
 	m.oldestFailureTimestamp.Describe(ch)
+	m.retriesTotal.Describe(ch)
 	m.retries.Describe(ch)
 	m.errors.Describe(ch)
 }
