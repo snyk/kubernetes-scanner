@@ -89,8 +89,12 @@ func (b *Backend) Upsert(ctx context.Context, requestID string, obj client.Objec
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 || resp.StatusCode < 200 {
-		body, err := io.ReadAll(resp.Body)
+		log.FromContext(ctx, "response_headers", resp.Header).Error(
+			fmt.Errorf("received HTTP response code %d", resp.StatusCode),
+			"error response HTTP headers",
+		)
 		b.recordFailure(ctx, resp.StatusCode, obj.GetUID())
+		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return fmt.Errorf("got non-20x HTTP code %v and could not read body: %w", resp.StatusCode, err)
 		}
