@@ -26,6 +26,9 @@ helm install <release-name> \
     kubernetes-scanner/kubernetes-scanner
 ```
 
+The actor running Helm needs to be empowered to create the resources templated
+by this chart.
+
 Or using chart dependencies:
 
 ```
