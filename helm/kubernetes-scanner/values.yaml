@@ -168,10 +168,16 @@ config:
 
 # MANDATORY: The name of a secret containing auth credentials, which must be
 # provisioned outside of this chart.
+#
 # Requires a key "snykServiceAccountToken". You can find more information on
 # Snyk service accounts at https://docs.snyk.io/snyk-admin/service-accounts.
 # The service account must be associated with the organizationID configured
 # above.
+#
+# The service account must have one of the following roles:
+# - Org Admin
+# - Group Admin
+# - Custom Role with "Publish Kubernetes Resources" permission
 #
 # secretName: ""
 
