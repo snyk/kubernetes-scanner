@@ -84,7 +84,7 @@ func (b *Backend) Upsert(ctx context.Context, requestID string, obj client.Objec
 
 	resp, err := b.client.Do(req.WithContext(ctx))
 	if err != nil {
-		b.recordFailure(ctx, 0, obj)
+		b.recordFailure(ctx, 0, obj, deletedAt)
 		return fmt.Errorf("could not post resource: %w", err)
 	}
 	defer resp.Body.Close()
@@ -94,7 +94,7 @@ func (b *Backend) Upsert(ctx context.Context, requestID string, obj client.Objec
 			fmt.Errorf("received HTTP response code %d", resp.StatusCode),
 			"error response HTTP headers",
 		)
-		b.recordFailure(ctx, resp.StatusCode, obj)
+		b.recordFailure(ctx, resp.StatusCode, obj, deletedAt)
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return fmt.Errorf("got non-20x HTTP code %v and could not read body: %w", resp.StatusCode, err)
@@ -232,7 +232,19 @@ func newMetrics(registry prometheus.Registerer) *metrics {
 	return m
 }
 
-func (m *metrics) recordFailure(ctx context.Context, code int, obj client.Object) {
+func (m *metrics) recordFailure(ctx context.Context, code int, obj client.Object, deletedAt *metav1.Time) {
+	log := log.FromContext(ctx)
+
+	if deletedAt != nil {
+		// the resource is being deleted, so do not add it to the failure map as it will not be
+		// reconciled anymore and thus could never succeed and would be dangling in our failure map.
+		// We're just re-uisng recordSuccess for this as recordSuccess does all the required
+		// cleanup.
+		m.recordSuccess(ctx, obj)
+		log.Info("removed resource from failure metrics as it is being deleted")
+		return
+	}
+
 	m.Lock()
 	defer m.Unlock()
 
@@ -256,7 +268,7 @@ func (m *metrics) recordFailure(ctx context.Context, code int, obj client.Object
 		if m.oldest == nil {
 			m.oldestFailureTimestamp.Set(float64(now))
 			m.oldest = &now
-			log.FromContext(ctx).Info("set oldest failure")
+			log.Info("set oldest failure")
 		}
 	}
 }
