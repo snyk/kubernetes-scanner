@@ -335,6 +335,13 @@ func TestMetricsRetries(t *testing.T) {
 	close(failures)
 	wg.Wait()
 
+	requireGauge(t, registry,
+		"kubernetes_scanner_unreconciled_resources_total",
+		// we have one resource that has 0 failures, meaning it should
+		// never show up in that unreconciled_resources_total metric.
+		float64(len(testFailures)-1),
+	)
+
 	// now mark all requests as successful. We can't do that above
 	// because we need to make sure that these calls come strictly
 	// after m.recordFailure calls to get the right count. However
