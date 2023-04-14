@@ -29,6 +29,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -83,7 +84,7 @@ func (b *Backend) Upsert(ctx context.Context, requestID string, obj client.Objec
 
 	resp, err := b.client.Do(req.WithContext(ctx))
 	if err != nil {
-		b.recordFailure(ctx, 0, obj.GetUID())
+		b.recordFailure(ctx, 0, obj, deletedAt)
 		return fmt.Errorf("could not post resource: %w", err)
 	}
 	defer resp.Body.Close()
@@ -93,7 +94,7 @@ func (b *Backend) Upsert(ctx context.Context, requestID string, obj client.Objec
 			fmt.Errorf("received HTTP response code %d", resp.StatusCode),
 			"error response HTTP headers",
 		)
-		b.recordFailure(ctx, resp.StatusCode, obj.GetUID())
+		b.recordFailure(ctx, resp.StatusCode, obj, deletedAt)
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return fmt.Errorf("got non-20x HTTP code %v and could not read body: %w", resp.StatusCode, err)
@@ -101,7 +102,7 @@ func (b *Backend) Upsert(ctx context.Context, requestID string, obj client.Objec
 		return fmt.Errorf("got non-20x exit code %v with body %s", resp.StatusCode, body)
 	}
 
-	b.recordSuccess(ctx, obj.GetUID())
+	b.recordSuccess(ctx, obj)
 	return nil
 }
 
@@ -151,9 +152,26 @@ type resource struct {
 	DeletedAt        *metav1.Time  `json:"deleted_at,omitempty"`
 }
 
+// resourceIdentifier identifies a specific resource. This cannot be done through
+// the UID because the UID is absent on delete requests.
+type resourceIdentifier struct {
+	schema.GroupVersionKind
+	types.NamespacedName
+}
+
+func newResourceID(from client.Object) resourceIdentifier {
+	return resourceIdentifier{
+		GroupVersionKind: from.GetObjectKind().GroupVersionKind(),
+		NamespacedName: types.NamespacedName{
+			Name:      from.GetName(),
+			Namespace: from.GetNamespace(),
+		},
+	}
+}
+
 type metrics struct {
 	sync.Mutex
-	failures map[types.UID]*upsertFailure
+	failures map[resourceIdentifier]*upsertFailure
 	oldest   *int64
 
 	retries                *prometheus.HistogramVec
@@ -167,7 +185,7 @@ var retriesBuckets = []float64{1, 2, 3, 5, 10, 50}
 
 func newMetrics(registry prometheus.Registerer) *metrics {
 	m := &metrics{
-		failures: make(map[types.UID]*upsertFailure),
+		failures: make(map[resourceIdentifier]*upsertFailure),
 		oldest:   nil,
 
 		retries: prometheus.NewHistogramVec(
@@ -214,14 +232,28 @@ func newMetrics(registry prometheus.Registerer) *metrics {
 	return m
 }
 
-func (m *metrics) recordFailure(ctx context.Context, code int, uid types.UID) {
+func (m *metrics) recordFailure(ctx context.Context, code int, obj client.Object, deletedAt *metav1.Time) {
+	log := log.FromContext(ctx)
+
+	if deletedAt != nil {
+		// the resource is being deleted, so do not add it to the failure map as it will not be
+		// reconciled anymore and thus could never succeed and would be dangling in our failure map.
+		// We're just re-uisng recordSuccess for this as recordSuccess does all the required
+		// cleanup.
+		m.recordSuccess(ctx, obj)
+		log.Info("removed resource from failure metrics as it is being deleted")
+		return
+	}
+
 	m.Lock()
 	defer m.Unlock()
+
+	resID := newResourceID(obj)
 
 	m.errors.With(prometheus.Labels{
 		"code": strconv.Itoa(code),
 	}).Inc()
-	if f, ok := m.failures[uid]; ok {
+	if f, ok := m.failures[resID]; ok {
 		f.retries++
 		f.code = code
 	} else {
@@ -231,21 +263,22 @@ func (m *metrics) recordFailure(ctx context.Context, code int, uid types.UID) {
 			added:   &now,
 			retries: 1,
 		}
-		m.failures[uid] = fail
+		m.failures[resID] = fail
 		m.retriesTotal.Inc()
 		if m.oldest == nil {
 			m.oldestFailureTimestamp.Set(float64(now))
 			m.oldest = &now
-			log.FromContext(ctx).Info("set oldest failure")
+			log.Info("set oldest failure")
 		}
 	}
 }
 
-func (m *metrics) recordSuccess(ctx context.Context, uid types.UID) {
+func (m *metrics) recordSuccess(ctx context.Context, obj client.Object) {
 	m.Lock()
 	defer m.Unlock()
 
-	fail, ok := m.failures[uid]
+	resID := newResourceID(obj)
+	fail, ok := m.failures[resID]
 	if !ok {
 		return
 	}
@@ -254,18 +287,18 @@ func (m *metrics) recordSuccess(ctx context.Context, uid types.UID) {
 		"code": strconv.Itoa(fail.code),
 	}).Observe(float64(fail.retries))
 
-	delete(m.failures, uid)
+	delete(m.failures, resID)
 	m.retriesTotal.Dec()
 
 	// if we're deleting the oldest element, replace it with the new oldest element.
 	if m.oldest == fail.added {
 		m.oldest = nil
 
-		var newUID types.UID
-		for uid, newFail := range m.failures {
+		var newID resourceIdentifier
+		for id, newFail := range m.failures {
 			if m.oldest == nil || *m.oldest > *newFail.added {
 				m.oldest = newFail.added
-				newUID = uid
+				newID = id
 			}
 		}
 
@@ -274,7 +307,7 @@ func (m *metrics) recordSuccess(ctx context.Context, uid types.UID) {
 			log.FromContext(ctx).Info("removed oldest failure, no new ones")
 		} else {
 			m.oldestFailureTimestamp.Set(float64(*m.oldest))
-			log.FromContext(ctx).Info("replaced oldest failure", "new_oldest_failure", newUID)
+			log.FromContext(ctx).Info("replaced oldest failure", "new_oldest_failure", newID)
 		}
 	}
 }

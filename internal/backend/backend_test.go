@@ -36,6 +36,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/snyk/kubernetes-scanner/internal/config"
 )
@@ -109,13 +110,13 @@ func TestMetricsFromBackend(t *testing.T) {
 
 	err := b.Upsert(ctx, "req-id", pod, "v1", orgID, nil)
 	require.Error(t, err)
-	require.Equal(t, uint8(1), b.failures[pod.UID].retries)
-	require.Equal(t, 400, b.failures[pod.UID].code)
+	require.Equal(t, uint8(1), b.failures[newResourceID(pod)].retries)
+	require.Equal(t, 400, b.failures[newResourceID(pod)].code)
 
 	tu.statusCodeToReturn = 0
 	err = b.Upsert(ctx, "req-id", pod, "v1", orgID, nil)
 	require.NoError(t, err)
-	_, ok := b.failures[pod.UID]
+	_, ok := b.failures[newResourceID(pod)]
 	require.False(t, ok)
 }
 
@@ -282,21 +283,34 @@ func TestJSONMatches(t *testing.T) {
 	require.Equal(t, expectedJSON, prettyJSON.String())
 }
 
+func newResource(id string) client.Object {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      id,
+			Namespace: id,
+			UID:       types.UID(id),
+		},
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Pod",
+		},
+	}
+}
+
 func TestMetricsRetries(t *testing.T) {
 	var (
 		ctx          = context.Background()
-		testFailures = map[types.UID]int{
-			"a": 1, "b": 6, "c": 5,
-			"d": 2, "e": 1, "f": 4,
-			"g": 3, "h": 3, "i": 1,
-			"j": 40, "k": 0, "l": 8,
+		testFailures = map[client.Object]int{
+			newResource("a"): 1, newResource("b"): 6, newResource("c"): 5,
+			newResource("d"): 2, newResource("e"): 1, newResource("f"): 4,
+			newResource("g"): 3, newResource("h"): 3, newResource("i"): 1,
+			newResource("j"): 40, newResource("k"): 0, newResource("l"): 8,
 		}
 		// see the retriesBuckets var for the bucket values.
 		// the actual values have been "calculated" manually.
 		expectedBucketSizes = []uint64{3, 4, 6, 8, 10, 11}
-		registry            = prometheus.NewPedanticRegistry()
-		m                   = newMetrics(registry)
-		failures            = make(chan types.UID)
+		m, registry         = newMetricsTest()
+		failures            = make(chan client.Object)
 		wg                  sync.WaitGroup
 	)
 	const metricName = "kubernetes_scanner_backend_retries"
@@ -308,11 +322,11 @@ func TestMetricsRetries(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for {
-				uid, ok := <-failures
+				obj, ok := <-failures
 				if !ok {
 					return
 				}
-				m.recordFailure(ctx, 404, uid)
+				m.recordFailure(ctx, 404, obj, nil)
 			}
 		}()
 	}
@@ -321,12 +335,12 @@ func TestMetricsRetries(t *testing.T) {
 	var allFailuresDone bool
 	for !allFailuresDone {
 		allFailuresDone = true
-		for uid, numFailures := range testFailures {
+		for obj, numFailures := range testFailures {
 			if numFailures == 0 {
 				continue
 			}
-			failures <- uid
-			testFailures[uid]--
+			failures <- obj
+			testFailures[obj]--
 			allFailuresDone = false
 
 		}
@@ -349,60 +363,56 @@ func TestMetricsRetries(t *testing.T) {
 	// are also thread-safe, we spawn a goroutine for each call as
 	// well.
 	wg.Add(len(testFailures))
-	for uid := range testFailures {
-		go func(uid types.UID) {
+	for obj := range testFailures {
+		go func(obj client.Object) {
 			defer wg.Done()
-			m.recordSuccess(ctx, uid)
-		}(uid)
+			m.recordSuccess(ctx, obj)
+		}(obj)
 	}
 	wg.Wait()
 
-	requireMetric(t, registry, metricName, func(t *testing.T, metric *promclient.Metric) {
-		for i, bucket := range metric.Histogram.Bucket {
-			require.Equal(t, expectedBucketSizes[i], *bucket.CumulativeCount)
-		}
-	})
+	requireHistogram(t, registry, metricName, expectedBucketSizes)
 }
 
 func TestMetricsOldest(t *testing.T) {
 	const metricName = "kubernetes_scanner_backend_oldest_failure"
 
-	setup := func() (*metrics, *prometheus.Registry) {
-		registry := prometheus.NewPedanticRegistry()
-		m := newMetrics(registry)
-		return m, registry
-	}
-
 	ctx := context.Background()
 	t.Run("cleanup with no other failures", func(t *testing.T) {
-		m, registry := setup()
+		m, registry := newMetricsTest()
 
-		m.recordFailure(ctx, 403, "x")
-		requireGauge(t, registry, metricName, float64(*m.failures["x"].added))
+		res := newResource("x")
 
-		m.recordSuccess(ctx, "x")
+		m.recordFailure(ctx, 403, res, nil)
+		requireGauge(t, registry, metricName, float64(*m.failures[newResourceID(res)].added))
+
+		m.recordSuccess(ctx, res)
 		requireGauge(t, registry, metricName, math.Inf(0))
 	})
 
 	t.Run("cleanup with replacement", func(t *testing.T) {
-		m, registry := setup()
+		m, registry := newMetricsTest()
+		resA := newResource("a")
+		resB := newResource("b")
 
-		m.recordFailure(ctx, 403, "a")
-		requireGauge(t, registry, metricName, float64(*m.failures["a"].added))
+		m.recordFailure(ctx, 403, resA, nil)
+		requireGauge(t, registry, metricName, float64(*m.failures[newResourceID(resA)].added))
 
-		m.recordFailure(ctx, 403, "b")
-		requireGauge(t, registry, metricName, float64(*m.failures["a"].added))
+		m.recordFailure(ctx, 403, resB, nil)
+		requireGauge(t, registry, metricName, float64(*m.failures[newResourceID(resA)].added))
 
-		m.recordSuccess(ctx, "a")
-		requireGauge(t, registry, metricName, float64(*m.failures["b"].added))
-		m.recordSuccess(ctx, "b")
+		m.recordSuccess(ctx, resA)
+		requireGauge(t, registry, metricName, float64(*m.failures[newResourceID(resB)].added))
+		m.recordSuccess(ctx, resB)
 	})
 
 	const ageMetricName = "kubernetes_scanner_backend_oldest_failure_age_seconds"
 	t.Run("test age", func(t *testing.T) {
-		m, registry := setup()
+		m, registry := newMetricsTest()
 
-		m.recordFailure(ctx, 403, "c")
+		res := newResource("a")
+
+		m.recordFailure(ctx, 403, res, nil)
 		requireGauge(t, registry, ageMetricName, 0)
 		// fast-forward time.
 		now = func() time.Time {
@@ -410,18 +420,40 @@ func TestMetricsOldest(t *testing.T) {
 		}
 		requireGauge(t, registry, ageMetricName, 50)
 
-		m.recordSuccess(ctx, "c")
+		m.recordSuccess(ctx, res)
 		requireGauge(t, registry, ageMetricName, math.Inf(0))
 	})
 }
 
 func TestMetricsErrors(t *testing.T) {
+	m, registry := newMetricsTest()
+	m.recordFailure(context.Background(), 500, newResource("a-uid"), nil)
+	requireCounter(t, registry, "kubernetes_scanner_backend_errors_total", 1.0)
+}
+
+func TestMetricsOnDeletedResource(t *testing.T) {
+	ctx := context.Background()
+	m, registry := newMetricsTest()
+	res := newResource("some-pod")
+	m.recordFailure(ctx, 404, res, nil)
+	requireGauge(t, registry, "kubernetes_scanner_unreconciled_resources_total", 1)
+	requireCounter(t, registry, "kubernetes_scanner_backend_errors_total", 1)
+	// we don't check for the backend_retries metric because without any values, it will be absent.
+
+	m.recordFailure(ctx, 404, res, nil)
+	requireGauge(t, registry, "kubernetes_scanner_unreconciled_resources_total", 1)
+	requireCounter(t, registry, "kubernetes_scanner_backend_errors_total", 2)
+
+	m.recordFailure(ctx, 404, res, &metav1.Time{Time: time.Now()})
+	requireGauge(t, registry, "kubernetes_scanner_unreconciled_resources_total", 0)
+	requireCounter(t, registry, "kubernetes_scanner_backend_errors_total", 2)
+	requireHistogram(t, registry, "kubernetes_scanner_backend_retries", []uint64{0, 1, 1, 1, 1, 1})
+}
+
+func newMetricsTest() (*metrics, *prometheus.Registry) {
 	registry := prometheus.NewPedanticRegistry()
 	m := newMetrics(registry)
-	m.recordFailure(context.Background(), 500, "a-uid")
-	requireMetric(t, registry, "kubernetes_scanner_backend_errors_total", func(t *testing.T, metric *promclient.Metric) {
-		require.Equal(t, 1.0, metric.Counter.GetValue())
-	})
+	return m, registry
 }
 
 // requireMetrics requires the given metric to be present in the registry and pass the requireFn.
@@ -446,5 +478,21 @@ func requireGauge(t *testing.T, registry prometheus.Gatherer, metricName string,
 	t.Helper()
 	requireMetric(t, registry, metricName, func(t *testing.T, metric *promclient.Metric) {
 		require.Equal(t, expected, metric.Gauge.GetValue())
+	})
+}
+
+func requireCounter(t *testing.T, registry prometheus.Gatherer, metricName string, expected float64) {
+	t.Helper()
+	requireMetric(t, registry, metricName, func(t *testing.T, metric *promclient.Metric) {
+		require.Equal(t, expected, metric.Counter.GetValue())
+	})
+}
+
+func requireHistogram(t *testing.T, registry prometheus.Gatherer, metricName string, expectedValues []uint64) {
+	t.Helper()
+	requireMetric(t, registry, metricName, func(t *testing.T, metric *promclient.Metric) {
+		for i, bucket := range metric.Histogram.Bucket {
+			require.Equal(t, expectedValues[i], *bucket.CumulativeCount)
+		}
 	})
 }
