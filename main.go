@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -148,55 +149,81 @@ type store interface {
 	Upsert(ctx context.Context, requestID string, obj client.Object, preferredVersion, orgID string, deletedAt *metav1.Time) error
 }
 
+// newObject creates a new object for this reconciler with the reconciler's GVK and the requests
+// name & namespace. This is all we know about an object without getting it from the Kube API.
+func (r *reconciler) newObject(req ctrl.Request) client.Object {
+	obj := &unstructured.Unstructured{}
+	obj.SetGroupVersionKind(r.gvk.GroupVersionKind)
+	obj.SetName(req.Name)
+	obj.SetNamespace(req.Namespace)
+
+	return obj
+}
+
+// isIgnored returns true if the given request should be ignored / skipped due to the namespace of
+// the request and the setup of this reconciler.
+func (r *reconciler) isIgnored(req ctrl.Request) bool {
+	// as long as r.namespaces is set, we want to check it. It might be 0-length, which will skip
+	// all namespaced resources. This is expected behavior.
+	return req.Namespace != "" && r.namespaces != nil &&
+		!slices.Contains(r.namespaces, req.Namespace)
+}
+
 func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	requestID := uuid.New().String()
-	logger := log.FromContext(ctx).WithValues(
-		"group", r.gvk.Group,
-		"version", r.gvk.Version,
-		"kind", r.gvk.Kind,
-		"name", req.Name,
-		"namespace", req.Namespace,
+	logger := log.FromContext(ctx,
+		"resource", map[string]string{
+			"group":     r.gvk.Group,
+			"version":   r.gvk.Version,
+			"kind":      r.gvk.Kind,
+			"name":      req.Name,
+			"namespace": req.Namespace,
+		},
 		"request_id", requestID,
 	)
 	logger.Info("reconciling resource")
 
-	// as long as r.namespaces is set, we want to check it. It might be 0-length, which will skip
-	// all namespaced resources. This is expected behavior.
-	if req.Namespace != "" && r.namespaces != nil && !slices.Contains(r.namespaces, req.Namespace) {
-		// don't set the requeueafter, we don't need it.
-		logger.V(1).Info("skipping resources as namespace is ignored")
+	if r.isIgnored(req) {
+		logger.Info("skipping resources as namespace is ignored")
+		// Ignored resource means we don't need to requeue it either.
 		return ctrl.Result{}, nil
 	}
 
-	obj := &unstructured.Unstructured{}
-	obj.SetGroupVersionKind(r.gvk.GroupVersionKind)
-	if err := r.Get(ctx, req.NamespacedName, obj); err != nil {
-		if !kerrors.IsNotFound(err) {
-			logger.Error(err, "could not get object from api server")
-			return ctrl.Result{}, fmt.Errorf("could not get referenced object %v: %w", req.NamespacedName, err)
-		}
+	obj := r.newObject(req)
+	var deleted *metav1.Time
+	switch err := r.Get(ctx, req.NamespacedName, obj); {
+	case kerrors.IsNotFound(err):
+		logger = logger.WithValues("reconciliation_action", "delete")
+		deleted = &metav1.Time{Time: time.Now()}
 
-		obj.SetName(req.Name)
-		obj.SetNamespace(req.Namespace)
-		// don't requeue after deletion.
-		now := metav1.Now()
-		err := r.store.Upsert(ctx, requestID, obj, r.gvk.PreferredVersion, r.orgID, &now)
-		if err != nil {
-			logger.Error(err, "could not publish deletion to store")
-		}
-		return ctrl.Result{}, err
+	case err != nil:
+		logger.Error(fmt.Errorf("could not get object from api server: %w", err), "failed reconciliation")
+		return ctrl.Result{}, fmt.Errorf("could not get referenced object %v: %w", req.NamespacedName, err)
+
+	default:
+		logger = logger.WithValues("uid", obj.GetUID(), "reconciliation_action", "upsert")
 	}
 
-	logger = logger.WithValues("uid", obj.GetUID())
 	ctx = log.IntoContext(ctx, logger)
+	if err := r.store.Upsert(ctx, requestID, obj, r.gvk.PreferredVersion, r.orgID, deleted); err != nil {
+		var httpErr *backend.HTTPError
+		if errors.As(err, &httpErr) {
+			// when zap finds an `error` type in the values, it will call `Error` and print that
+			// message in the logs. We want to get the underlying values though, to have indexed
+			// fields.
+			logger = logger.WithValues("http_response_error", httpErr.Values())
+		}
 
-	err := r.store.Upsert(ctx, requestID, obj, r.gvk.PreferredVersion, r.orgID, nil)
-	if err != nil {
-		logger.Error(err, "could not publish upsert to store")
+		logger.Error(fmt.Errorf("could not upsert to store: %w", err), "failed reconciliation")
 		return ctrl.Result{}, err
 	}
 
 	logger.Info("successful reconciliation")
+	// don't requeue after deletion.
+	if deleted != nil {
+		return ctrl.Result{}, nil
+	}
+
 	return ctrl.Result{RequeueAfter: r.requeueAfter}, nil
 }
 

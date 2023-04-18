@@ -90,20 +90,49 @@ func (b *Backend) Upsert(ctx context.Context, requestID string, obj client.Objec
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 || resp.StatusCode < 200 {
-		log.FromContext(ctx, "response_headers", resp.Header).Error(
-			fmt.Errorf("received HTTP response code %d", resp.StatusCode),
-			"error response HTTP headers",
-		)
 		b.recordFailure(ctx, resp.StatusCode, obj, deletedAt)
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return fmt.Errorf("got non-20x HTTP code %v and could not read body: %w", resp.StatusCode, err)
-		}
-		return fmt.Errorf("got non-20x exit code %v with body %s", resp.StatusCode, body)
+		return newHTTPError(resp)
 	}
 
 	b.recordSuccess(ctx, obj)
 	return nil
+}
+
+func newHTTPError(resp *http.Response) error {
+	body, err := io.ReadAll(resp.Body)
+	return &HTTPError{
+		StatusCode: resp.StatusCode,
+		Header:     resp.Header,
+		body:       body,
+		bodyErr:    err,
+	}
+}
+
+type HTTPError struct {
+	StatusCode int
+	Header     http.Header
+	body       []byte
+	bodyErr    error
+}
+
+func (h *HTTPError) Error() string {
+	msg := fmt.Sprintf("got non-20x HTTP code %v", h.StatusCode)
+	switch {
+	case h.bodyErr != nil:
+		msg += fmt.Sprintf(" but could not read body: %v", h.bodyErr)
+	case len(h.body) != 0:
+		msg += fmt.Sprintf(" with body %s", h.body)
+	}
+	return msg
+}
+
+// Values returns a map that is suitable for usage with a `logr.Logger.WithValues` in order to log
+// properly indexed / structured fields.
+func (h *HTTPError) Values() map[string]any {
+	return map[string]any{
+		"header": h.Header,
+		"code":   h.StatusCode,
+	}
 }
 
 // for testing.
@@ -245,31 +274,29 @@ func (m *metrics) recordFailure(ctx context.Context, code int, obj client.Object
 		return
 	}
 
+	m.errors.With(prometheus.Labels{"code": strconv.Itoa(code)}).Inc()
+
 	m.Lock()
 	defer m.Unlock()
 
 	resID := newResourceID(obj)
-
-	m.errors.With(prometheus.Labels{
-		"code": strconv.Itoa(code),
-	}).Inc()
 	if f, ok := m.failures[resID]; ok {
 		f.retries++
 		f.code = code
-	} else {
-		now := now().Unix()
-		fail := &upsertFailure{
-			code:    code,
-			added:   &now,
-			retries: 1,
-		}
-		m.failures[resID] = fail
-		m.retriesTotal.Inc()
-		if m.oldest == nil {
-			m.oldestFailureTimestamp.Set(float64(now))
-			m.oldest = &now
-			log.Info("set oldest failure")
-		}
+		return
+	}
+
+	now := now().Unix()
+	m.failures[resID] = &upsertFailure{
+		code:    code,
+		added:   &now,
+		retries: 1,
+	}
+	m.retriesTotal.Inc()
+	if m.oldest == nil {
+		m.oldestFailureTimestamp.Set(float64(now))
+		m.oldest = &now
+		log.Info("set oldest failure")
 	}
 }
 
@@ -283,37 +310,37 @@ func (m *metrics) recordSuccess(ctx context.Context, obj client.Object) {
 		return
 	}
 
-	m.retries.With(prometheus.Labels{
-		"code": strconv.Itoa(fail.code),
-	}).Observe(float64(fail.retries))
+	m.retries.With(prometheus.Labels{"code": strconv.Itoa(fail.code)}).Observe(fail.retries)
 
 	delete(m.failures, resID)
 	m.retriesTotal.Dec()
 
+	if fail.added != m.oldest {
+		return
+	}
+
 	// if we're deleting the oldest element, replace it with the new oldest element.
-	if m.oldest == fail.added {
-		m.oldest = nil
+	m.oldest = nil
 
-		var newID resourceIdentifier
-		for id, newFail := range m.failures {
-			if m.oldest == nil || *m.oldest > *newFail.added {
-				m.oldest = newFail.added
-				newID = id
-			}
+	var newID resourceIdentifier
+	for id, newFail := range m.failures {
+		if m.oldest == nil || *m.oldest > *newFail.added {
+			m.oldest = newFail.added
+			newID = id
 		}
+	}
 
-		if m.oldest == nil {
-			m.oldestFailureTimestamp.Set(math.Inf(0))
-			log.FromContext(ctx).Info("removed oldest failure, no new ones")
-		} else {
-			m.oldestFailureTimestamp.Set(float64(*m.oldest))
-			log.FromContext(ctx).Info("replaced oldest failure", "new_oldest_failure", newID)
-		}
+	if m.oldest == nil {
+		m.oldestFailureTimestamp.Set(math.Inf(0))
+		log.FromContext(ctx).Info("removed oldest failure, no new ones")
+	} else {
+		m.oldestFailureTimestamp.Set(float64(*m.oldest))
+		log.FromContext(ctx).Info("replaced oldest failure", "new_oldest_failure", newID)
 	}
 }
 
 type upsertFailure struct {
-	retries uint8
+	retries float64
 	code    int
 	added   *int64
 }
@@ -331,6 +358,7 @@ func (m *metrics) Collect(ch chan<- prometheus.Metric) {
 	m.retries.Collect(ch)
 	m.errors.Collect(ch)
 }
+
 func (m *metrics) Describe(ch chan<- *prometheus.Desc) {
 	ch <- m.oldestFailureAge
 
