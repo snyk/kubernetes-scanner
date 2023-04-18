@@ -149,6 +149,26 @@ type store interface {
 	Upsert(ctx context.Context, requestID string, obj client.Object, preferredVersion, orgID string, deletedAt *metav1.Time) error
 }
 
+// newObject creates a new object for this reconciler with the reconciler's GVK and the requests
+// name & namespace. This is all we know about an object without getting it from the Kube API.
+func (r *reconciler) newObject(req ctrl.Request) client.Object {
+	obj := &unstructured.Unstructured{}
+	obj.SetGroupVersionKind(r.gvk.GroupVersionKind)
+	obj.SetName(req.Name)
+	obj.SetNamespace(req.Namespace)
+
+	return obj
+}
+
+// isIgnored returns true if the given request should be ignored / skipped due to the namespace of
+// the request and the setup of this reconciler.
+func (r *reconciler) isIgnored(req ctrl.Request) bool {
+	// as long as r.namespaces is set, we want to check it. It might be 0-length, which will skip
+	// all namespaced resources. This is expected behavior.
+	return req.Namespace != "" && r.namespaces != nil &&
+		!slices.Contains(r.namespaces, req.Namespace)
+}
+
 func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	requestID := uuid.New().String()
 	logger := log.FromContext(ctx,
@@ -163,18 +183,13 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	)
 	logger.Info("reconciling resource")
 
-	// as long as r.namespaces is set, we want to check it. It might be 0-length, which will skip
-	// all namespaced resources. This is expected behavior.
-	if req.Namespace != "" && r.namespaces != nil && !slices.Contains(r.namespaces, req.Namespace) {
-		// don't set the requeueafter, we don't need it.
-		logger.V(1).Info("skipping resources as namespace is ignored")
+	if r.isIgnored(req) {
+		logger.Info("skipping resources as namespace is ignored")
+		// Ignored resource means we don't need to requeue it either.
 		return ctrl.Result{}, nil
 	}
 
-	obj := &unstructured.Unstructured{}
-	obj.SetGroupVersionKind(r.gvk.GroupVersionKind)
-	obj.SetName(req.Name)
-	obj.SetNamespace(req.Namespace)
+	obj := r.newObject(req)
 	var deleted *metav1.Time
 	switch err := r.Get(ctx, req.NamespacedName, obj); {
 	case kerrors.IsNotFound(err):
