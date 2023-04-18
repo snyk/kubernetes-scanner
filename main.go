@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -150,12 +151,14 @@ type store interface {
 
 func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	requestID := uuid.New().String()
-	logger := log.FromContext(ctx).WithValues(
-		"group", r.gvk.Group,
-		"version", r.gvk.Version,
-		"kind", r.gvk.Kind,
-		"name", req.Name,
-		"namespace", req.Namespace,
+	logger := log.FromContext(ctx,
+		"resource", map[string]string{
+			"group":     r.gvk.Group,
+			"version":   r.gvk.Version,
+			"kind":      r.gvk.Kind,
+			"name":      req.Name,
+			"namespace": req.Namespace,
+		},
 		"request_id", requestID,
 	)
 	logger.Info("reconciling resource")
@@ -170,33 +173,42 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(r.gvk.GroupVersionKind)
-	if err := r.Get(ctx, req.NamespacedName, obj); err != nil {
-		if !kerrors.IsNotFound(err) {
-			logger.Error(err, "could not get object from api server")
-			return ctrl.Result{}, fmt.Errorf("could not get referenced object %v: %w", req.NamespacedName, err)
-		}
+	obj.SetName(req.Name)
+	obj.SetNamespace(req.Namespace)
+	var deleted *metav1.Time
+	switch err := r.Get(ctx, req.NamespacedName, obj); {
+	case kerrors.IsNotFound(err):
+		logger = logger.WithValues("reconciliation_action", "delete")
+		deleted = &metav1.Time{Time: time.Now()}
 
-		obj.SetName(req.Name)
-		obj.SetNamespace(req.Namespace)
-		// don't requeue after deletion.
-		now := metav1.Now()
-		err := r.store.Upsert(ctx, requestID, obj, r.gvk.PreferredVersion, r.orgID, &now)
-		if err != nil {
-			logger.Error(err, "could not publish deletion to store")
-		}
-		return ctrl.Result{}, err
+	case err != nil:
+		logger.Error(fmt.Errorf("could not get object from api server: %w", err), "failed reconciliation")
+		return ctrl.Result{}, fmt.Errorf("could not get referenced object %v: %w", req.NamespacedName, err)
+
+	default:
+		logger = logger.WithValues("uid", obj.GetUID(), "reconciliation_action", "upsert")
 	}
 
-	logger = logger.WithValues("uid", obj.GetUID())
 	ctx = log.IntoContext(ctx, logger)
+	if err := r.store.Upsert(ctx, requestID, obj, r.gvk.PreferredVersion, r.orgID, deleted); err != nil {
+		var httpErr *backend.HTTPError
+		if errors.As(err, &httpErr) {
+			// when zap finds an `error` type in the values, it will call `Error` and print that
+			// message in the logs. We want to get the underlying values though, to have indexed
+			// fields.
+			logger = logger.WithValues("http_response_error", httpErr.Values())
+		}
 
-	err := r.store.Upsert(ctx, requestID, obj, r.gvk.PreferredVersion, r.orgID, nil)
-	if err != nil {
-		logger.Error(err, "could not publish upsert to store")
+		logger.Error(fmt.Errorf("could not upsert to store: %w", err), "failed reconciliation")
 		return ctrl.Result{}, err
 	}
 
 	logger.Info("successful reconciliation")
+	// don't requeue after deletion.
+	if deleted != nil {
+		return ctrl.Result{}, nil
+	}
+
 	return ctrl.Result{RequeueAfter: r.requeueAfter}, nil
 }
 

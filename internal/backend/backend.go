@@ -90,20 +90,49 @@ func (b *Backend) Upsert(ctx context.Context, requestID string, obj client.Objec
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 || resp.StatusCode < 200 {
-		log.FromContext(ctx, "response_headers", resp.Header).Error(
-			fmt.Errorf("received HTTP response code %d", resp.StatusCode),
-			"error response HTTP headers",
-		)
 		b.recordFailure(ctx, resp.StatusCode, obj, deletedAt)
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return fmt.Errorf("got non-20x HTTP code %v and could not read body: %w", resp.StatusCode, err)
-		}
-		return fmt.Errorf("got non-20x exit code %v with body %s", resp.StatusCode, body)
+		return newHTTPError(resp)
 	}
 
 	b.recordSuccess(ctx, obj)
 	return nil
+}
+
+func newHTTPError(resp *http.Response) error {
+	body, err := io.ReadAll(resp.Body)
+	return &HTTPError{
+		StatusCode: resp.StatusCode,
+		Header:     resp.Header,
+		body:       body,
+		bodyErr:    err,
+	}
+}
+
+type HTTPError struct {
+	StatusCode int
+	Header     http.Header
+	body       []byte
+	bodyErr    error
+}
+
+func (h *HTTPError) Error() string {
+	msg := fmt.Sprintf("got non-20x HTTP code %v", h.StatusCode)
+	switch {
+	case h.bodyErr != nil:
+		msg += fmt.Sprintf(" but could not read body: %v", h.bodyErr)
+	case len(h.body) != 0:
+		msg += fmt.Sprintf(" with body %s", h.body)
+	}
+	return msg
+}
+
+// Values returns a map that is suitable for usage with a `logr.Logger.WithValues` in order to log
+// properly indexed / structured fields.
+func (h *HTTPError) Values() map[string]any {
+	return map[string]any{
+		"header": h.Header,
+		"code":   h.StatusCode,
+	}
 }
 
 // for testing.
