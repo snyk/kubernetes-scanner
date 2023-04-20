@@ -40,8 +40,9 @@ type Config struct {
 	// MetricsNamespace defines the namespace that will be used for the prometheus metrics.
 	MetricsNamespace string `json:"metricsNamespace"`
 	ProbeAddress     string `json:"probeAddress"`
-	// OrganizationID is the snyk organization ID where data should be routed to.
-	OrganizationID string `json:"organizationID"`
+
+	// Routes contain configuration resources from which namespaces are routed for which organization
+	Routes []Route `json:"routes"`
 
 	// Egress contains configuration for everything that's related to sending data to Snyk's
 	// backend.
@@ -67,6 +68,18 @@ type Egress struct {
 	// file, can only be set through the environment variable.
 	SnykServiceAccountToken string `json:"-" env:"SNYK_SERVICE_ACCOUNT_TOKEN"`
 }
+
+type Route struct {
+	// OrganizationID is the snyk organization ID where data should be routed to.
+	OrganizationID string `json:"organizationID"`
+	// ClusterScopedResources defines if cluster-scoped resources should be sent to the API.
+	ClusterScopedResources bool `json:"clusterScopedResources"`
+	// Namespaces from which resources will be sent to the API.
+	// If empty, namespaced resources will not be sent at all.
+	// Supports "*" to match all namespaces
+	Namespaces []string `json:"namespaces"`
+}
+
 type GroupVersionKind struct {
 	schema.GroupVersionKind
 	PreferredVersion string
@@ -86,6 +99,16 @@ func (e Egress) validate() error {
 		return fmt.Errorf("no Snyk service account token set")
 	}
 
+	return nil
+}
+
+func (r Route) validate() error {
+	if r.OrganizationID == "" {
+		return fmt.Errorf("organization ID is missing")
+	}
+	if len(r.Namespaces) == 0 && !r.ClusterScopedResources {
+		return fmt.Errorf("no namespace or ClusterResource routing defined for the organization %s", r.OrganizationID)
+	}
 	return nil
 }
 
@@ -137,8 +160,14 @@ func Read(configFile string) (*Config, error) {
 		return nil, fmt.Errorf("could not unmarshal config file: %w", err)
 	}
 
-	if c.OrganizationID == "" {
-		return nil, fmt.Errorf("organization ID is missing in config file")
+	if len(c.Routes) == 0 {
+		return nil, fmt.Errorf("no routes defined in config file")
+	}
+
+	for _, route := range c.Routes {
+		if err := route.validate(); err != nil {
+			return nil, fmt.Errorf("could not validate routes in config file: %w", err)
+		}
 	}
 
 	if err := c.Egress.validate(); err != nil {

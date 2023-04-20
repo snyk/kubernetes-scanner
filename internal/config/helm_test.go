@@ -39,9 +39,15 @@ func TestHelmChartConfig(t *testing.T) {
 	}
 
 	values := map[string]interface{}{
-		"secretName":     "snyk-service-account",
-		"organizationID": "umbrella-corp",
-		"clusterName":    "default",
+		"secretName": "snyk-service-account",
+		"routes": []map[string]interface{}{
+			{
+				"organizationID":         "umbrella-corp",
+				"namespaces":             []string{"*"},
+				"clusterScopedResources": true,
+			},
+		},
+		"clusterName": "default",
 		// while this doesn't test the correctness of the podMonitor, it at least ensures that it
 		// can be decoded and is templated correctly.
 		"prometheus": map[string]interface{}{
@@ -107,7 +113,12 @@ func checkConfigMap(t *testing.T, cm *corev1.ConfigMap) {
 		MetricsAddress: ":8080",
 		ProbeAddress:   ":8081",
 		ClusterName:    "default",
-		OrganizationID: "umbrella-corp",
+		Routes: []Route{{
+			OrganizationID:         "umbrella-corp",
+			Namespaces:             []string{"*"},
+			ClusterScopedResources: true,
+		},
+		},
 		Scanning: Scan{
 			RequeueAfter: metav1.Duration{Duration: 6 * time.Hour},
 			Types: []ScanType{{

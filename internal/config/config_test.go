@@ -23,6 +23,69 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
+func TestRouteValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		errorExpected bool
+		route         Route
+	}{
+		{
+			name:          "route with ClusterScopedResources:true should be valid",
+			errorExpected: false,
+			route: Route{
+				OrganizationID:         "umbrella",
+				ClusterScopedResources: true,
+				Namespaces:             nil,
+			},
+		},
+		{
+			name:          "route with only namespaces routing should be valid",
+			errorExpected: false,
+			route: Route{
+				OrganizationID:         "umbrella",
+				ClusterScopedResources: false,
+				Namespaces:             []string{"*"},
+			},
+		},
+		{
+			name:          "route with both ClusterScopedResources and namespaces routing should be valid",
+			errorExpected: false,
+			route: Route{
+				OrganizationID:         "umbrella",
+				ClusterScopedResources: true,
+				Namespaces:             []string{"*"},
+			},
+		},
+		{
+			name:          "route without OrganizationID should fail",
+			errorExpected: true,
+			route: Route{
+				OrganizationID:         "",
+				ClusterScopedResources: true,
+				Namespaces:             []string{"*"},
+			},
+		},
+		{
+			name:          "route without namespace and ClusterScopedResources:false should fail",
+			errorExpected: true,
+			route: Route{
+				OrganizationID:         "umbrella",
+				ClusterScopedResources: false,
+				Namespaces:             nil,
+			},
+		},
+	} {
+		t.Run(tc.name, func(tt *testing.T) {
+			err := tc.route.validate()
+			if tc.errorExpected {
+				require.Error(tt, err)
+			} else {
+				require.NoError(tt, err)
+			}
+		})
+	}
+}
+
 func TestGetGVKs(t *testing.T) {
 	testTypes := map[string]struct {
 		scanType     ScanType

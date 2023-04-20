@@ -40,10 +40,12 @@ import (
 const (
 	expectNoReconcilesLabel = "no-scrape"
 	hasFinalizerLabel       = "has-finalizer"
+	orgRouteAll             = "route-all"
+	orgRouteTest            = "route-test"
 )
 
 func TestController(t *testing.T) {
-	const orgID = "abc"
+
 	if testing.Short() {
 		t.Skip("not running controller tests that spawn API server")
 	}
@@ -67,7 +69,12 @@ func TestController(t *testing.T) {
 			Types:        test.types,
 			RequeueAfter: metav1.Duration{Duration: time.Second},
 		},
-		OrganizationID: orgID,
+		Routes: []config.Route{
+			{OrganizationID: orgRouteAll, ClusterScopedResources: true, Namespaces: []string{"*", "test"}},
+			{OrganizationID: orgRouteTest, ClusterScopedResources: false, Namespaces: []string{"test"}},
+			// adding possibly duplicating namespace route for orgRouteAll, we expect this to be de-duplicated automatically
+			{OrganizationID: orgRouteAll, ClusterScopedResources: true, Namespaces: []string{"test"}},
+		},
 		MetricsAddress: "localhost:9091",
 	}
 
@@ -135,7 +142,10 @@ func TestController(t *testing.T) {
 	// the first one immediately after create, and the next one a second later.
 	numReconciliationLoops := int(timeout/cfg.Scanning.RequeueAfter.Duration) + 1
 	for _, obj := range test.objects {
-		if err := checkObject(obj, numReconciliationLoops, events, orgID); err != nil {
+		if err := checkObject(obj, numReconciliationLoops, events, orgRouteAll); err != nil {
+			t.Errorf("%v", err)
+		}
+		if err := checkObject(obj, numReconciliationLoops, events, orgRouteTest); err != nil {
 			t.Errorf("%v", err)
 		}
 	}
@@ -155,6 +165,9 @@ func newTest(t *testing.T) test {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "normal-pod",
 					Namespace: "default",
+					Labels: map[string]string{
+						orgRouteTest + expectNoReconcilesLabel: "true",
+					},
 				},
 				TypeMeta: metav1.TypeMeta{
 					Kind:       "Pod",
@@ -172,7 +185,10 @@ func newTest(t *testing.T) test {
 					Name:       "pod-with-finalizer",
 					Namespace:  "default",
 					Finalizers: []string{"yes.com/hello"},
-					Labels:     map[string]string{hasFinalizerLabel: "true"},
+					Labels: map[string]string{
+						orgRouteAll + hasFinalizerLabel:        "true",
+						orgRouteTest + expectNoReconcilesLabel: "true",
+					},
 				},
 				TypeMeta: metav1.TypeMeta{
 					Kind:       "Pod",
@@ -188,6 +204,9 @@ func newTest(t *testing.T) test {
 			&corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "a-node",
+					Labels: map[string]string{
+						orgRouteTest + expectNoReconcilesLabel: "true",
+					},
 				},
 				TypeMeta: metav1.TypeMeta{
 					Kind:       "Node",
@@ -198,6 +217,33 @@ func newTest(t *testing.T) test {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "normal-secret",
 					Namespace: "default",
+					Labels: map[string]string{
+						orgRouteTest + expectNoReconcilesLabel: "true",
+					},
+				},
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Secret",
+					APIVersion: "v1",
+				},
+				Data: map[string][]byte{"hello": []byte("goodbye")},
+			},
+			&corev1.Namespace{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Namespace",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test",
+					Labels: map[string]string{
+						orgRouteAll + expectNoReconcilesLabel:  "true",
+						orgRouteTest + expectNoReconcilesLabel: "true",
+					},
+				},
+			},
+			&corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-secret",
+					Namespace: "test",
 				},
 				TypeMeta: metav1.TypeMeta{
 					Kind:       "Secret",
@@ -209,7 +255,10 @@ func newTest(t *testing.T) test {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "object-we-dont-expect-to-scan",
 					Namespace: "default",
-					Labels:    map[string]string{expectNoReconcilesLabel: "true"},
+					Labels: map[string]string{
+						orgRouteAll + expectNoReconcilesLabel:  "true",
+						orgRouteTest + expectNoReconcilesLabel: "true",
+					},
 				},
 				TypeMeta: metav1.TypeMeta{
 					Kind:       "ConfigMap",
@@ -281,12 +330,12 @@ func (f *fakeBackend) Start(ctx context.Context) reconciliationEvents {
 		// closed, we set it to nil. This prevents us from reading from
 		// a closed channel again and again.
 		select {
-		case uid, ok := <-f.reconciled:
+		case rID, ok := <-f.reconciled:
 			if !ok {
 				f.reconciled = nil
 				continue
 			}
-			reconciliations[uid]++
+			reconciliations[rID]++
 
 		case rID, ok := <-f.deleted:
 			if !ok {
@@ -335,31 +384,31 @@ func checkObject(obj client.Object, expectedReconciliations int, events reconcil
 	numReconciles, wasReconciled := events.reconciliations[rID]
 	// if the resource is not expected to be reconciled - we mark this with the label - then we need to
 	// make sure it wasn't.
-	if _, noReconciles := obj.GetLabels()[expectNoReconcilesLabel]; noReconciles {
+	if _, noReconciles := obj.GetLabels()[orgID+expectNoReconcilesLabel]; noReconciles {
 		if wasReconciled {
-			return fmt.Errorf("object %v should not have been reconciled, but was", rID)
+			return fmt.Errorf("object %v should not have been reconciled, but was for org %s", rID, orgID)
 		}
 		return nil
 	}
 
 	if !wasReconciled {
-		return fmt.Errorf("object %v was not reconciled, but should have been", obj)
+		return fmt.Errorf("object %v was not reconciled, but should have been for org %s", obj, orgID)
 	}
 
 	// if the resource had a finalizer - also marked with the label - the resource should have had
 	// one more reconciliation than others; the one in between "deletion request" and actual
 	// deletion.
-	if _, ok := obj.GetLabels()[hasFinalizerLabel]; ok {
+	if _, ok := obj.GetLabels()[orgID+hasFinalizerLabel]; ok {
 		numReconciles--
 	}
 
 	if numReconciles != expectedReconciliations {
-		return fmt.Errorf("resource %v has wrong amount of reconciles. expected=%v, got=%v",
-			newResourceID(obj, orgID), expectedReconciliations, numReconciles)
+		return fmt.Errorf("resource %v has wrong amount of reconciles for org %s. expected=%v, got=%v",
+			newResourceID(obj, orgID), orgID, expectedReconciliations, numReconciles)
 	}
 
 	if _, ok := events.deletions[rID]; !ok {
-		return fmt.Errorf("did not record resource deletion of %v", rID)
+		return fmt.Errorf("did not record resource deletion of %v for org %s", rID, orgID)
 	}
 
 	return nil
