@@ -115,7 +115,7 @@ func setupController(cfg *config.Config, s store) (manager.Manager, error) {
 				requeueAfter: cfg.Scanning.RequeueAfter.Duration,
 				store:        s,
 				gvk:          gvk,
-				orgID:        cfg.OrganizationID,
+				routes:       newResourceRoutes(cfg.Routes),
 				namespaces:   scanType.Namespaces,
 			}).SetupWithManager(mgr); err != nil {
 				return nil, fmt.Errorf("unable to create controller for GVK %v: %w", gvk, err)
@@ -139,7 +139,64 @@ type reconciler struct {
 	gvk          config.GroupVersionKind
 	store
 	namespaces []string
-	orgID      string
+	routes     resourceRoutes
+}
+
+type resourceRoutes struct {
+	clusterResources []string
+	namespaceRoutes  map[string][]string
+}
+
+func newResourceRoutes(routes []config.Route) resourceRoutes {
+	cfg := resourceRoutes{
+		clusterResources: []string{},
+		namespaceRoutes:  map[string][]string{},
+	}
+
+	// Creating clusterResources with unique organizationIDs
+	// This de-duplicates possible misconfiguration with multiple ClusterScopedResources:true defined for same org
+	clusterRouteSet := map[string]bool{}
+	for _, route := range routes {
+		if route.ClusterScopedResources {
+			clusterRouteSet[route.OrganizationID] = true
+		}
+	}
+	for orgID := range clusterRouteSet {
+		cfg.clusterResources = append(cfg.clusterResources, orgID)
+	}
+
+	// Set with unique organizationIDs -> orgId -> namespace -> bool
+	namespaceRouteSet := map[string]map[string]bool{}
+	for _, route := range routes {
+		if namespaceRouteSet[route.OrganizationID] == nil {
+			namespaceRouteSet[route.OrganizationID] = map[string]bool{}
+		}
+		for _, ns := range route.Namespaces {
+			namespaceRouteSet[route.OrganizationID][ns] = true
+		}
+	}
+	// If there is a wildcard namespace route for an organization, do not store other namespace routes.
+	// This helps to de-duplicate if an organization was configured with ["*", "ns-1", ....]
+	for orgID, namespaceRoutes := range namespaceRouteSet {
+		if namespaceRoutes["*"] {
+			cfg.namespaceRoutes["*"] = append(cfg.namespaceRoutes["*"], orgID)
+		} else {
+			for ns := range namespaceRoutes {
+				cfg.namespaceRoutes[ns] = append(cfg.namespaceRoutes[ns], orgID)
+			}
+		}
+	}
+	return cfg
+}
+
+// targetOrganizations returns target organizations for given request based on config.Routes
+// Resources can be configured to be routed for zero or more organizations
+func (r resourceRoutes) targetOrganizations(req ctrl.Request) []string {
+	if req.Namespace == "" {
+		return r.clusterResources
+	}
+	// For namespaced resource, return all organizations with * and this specific namespace routes
+	return append(r.namespaceRoutes[req.Namespace], r.namespaceRoutes["*"]...)
 }
 
 type store interface {
@@ -170,7 +227,6 @@ func (r *reconciler) isIgnored(req ctrl.Request) bool {
 }
 
 func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	requestID := uuid.New().String()
 	logger := log.FromContext(ctx,
 		"resource", map[string]string{
 			"group":     r.gvk.Group,
@@ -179,13 +235,18 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			"name":      req.Name,
 			"namespace": req.Namespace,
 		},
-		"request_id", requestID,
 	)
 	logger.Info("reconciling resource")
 
 	if r.isIgnored(req) {
 		logger.Info("skipping resources as namespace is ignored")
 		// Ignored resource means we don't need to requeue it either.
+		return ctrl.Result{}, nil
+	}
+
+	orgs := r.routes.targetOrganizations(req)
+	if len(orgs) == 0 {
+		logger.Info("skipping resources as namespace has no routes")
 		return ctrl.Result{}, nil
 	}
 
@@ -204,21 +265,35 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		logger = logger.WithValues("uid", obj.GetUID(), "reconciliation_action", "upsert")
 	}
 
-	ctx = log.IntoContext(ctx, logger)
-	if err := r.store.Upsert(ctx, requestID, obj, r.gvk.PreferredVersion, r.orgID, deleted); err != nil {
-		var httpErr *backend.HTTPError
-		if errors.As(err, &httpErr) {
-			// when zap finds an `error` type in the values, it will call `Error` and print that
-			// message in the logs. We want to get the underlying values though, to have indexed
-			// fields.
-			logger = logger.WithValues("http_response_error", httpErr.Values())
-		}
+	var allErrs error
+	for _, orgID := range orgs {
+		requestID := uuid.New().String()
+		logger = logger.WithValues("organization_id", orgID, "request_id", requestID)
+		ctx = log.IntoContext(ctx, logger)
+		if err := r.store.Upsert(ctx, requestID, obj, r.gvk.PreferredVersion, orgID, deleted); err != nil {
+			var httpErr *backend.HTTPError
+			if errors.As(err, &httpErr) {
+				// when zap finds an `error` type in the values, it will call `Error` and print that
+				// message in the logs. We want to get the underlying values though, to have indexed
+				// fields.
+				logger = logger.WithValues("http_response_error", httpErr.Values())
+			}
 
-		logger.Error(fmt.Errorf("could not upsert to store: %w", err), "failed reconciliation")
-		return ctrl.Result{}, err
+			logger.Error(fmt.Errorf("could not upsert to store: %w", err), "failed reconciliation")
+			if allErrs == nil {
+				allErrs = err
+			} else {
+				allErrs = fmt.Errorf("%w, %w", err, allErrs)
+			}
+		} else {
+			logger.Info("successful reconciliation")
+		}
 	}
 
-	logger.Info("successful reconciliation")
+	if allErrs != nil {
+		return ctrl.Result{}, allErrs
+	}
+
 	// don't requeue after deletion.
 	if deleted != nil {
 		return ctrl.Result{}, nil
