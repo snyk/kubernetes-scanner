@@ -44,7 +44,6 @@ const (
 )
 
 func TestController(t *testing.T) {
-
 	if testing.Short() {
 		t.Skip("not running controller tests that spawn API server")
 	}

@@ -16,20 +16,27 @@
 package test
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"testing"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/kubectl/pkg/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	"sigs.k8s.io/yaml"
 )
 
 // SetupEnv sets up a test environment, meaning a kube-apiserver and an etcd store in order to run
@@ -104,4 +111,40 @@ func WaitForAPI(ctx context.Context, c client.Client) error {
 		}
 		return nil
 	}
+}
+
+// ParseKubernetesManifests parses the yaml manifests from the given io.Reader into a list of
+// (typed) objects. Note that CRDs cannot be decoded into their typed representation, and will
+// instead be returned as `unstructured.Unstructured` resources.
+func ParseKubernetesManifests(yamlManifests io.Reader) ([]runtime.Object, error) {
+	multidocReader := utilyaml.NewYAMLReader(bufio.NewReader(yamlManifests))
+	var objs []runtime.Object
+	for {
+		buf, err := multidocReader.Read()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, fmt.Errorf("could not read yaml document: %w", err)
+		}
+
+		// if we'd want to decode CRDs, we'd need to register the codecs.
+		obj, _, err := scheme.Codecs.UniversalDeserializer().Decode(buf, nil, nil)
+		if err != nil {
+			// if we couldn't decode it with the core scheme, try decoding it into an ustructured
+			// type. For this, we first need to convert the YAML buffer to JSON, so that we can pass
+			// it to the unstructured decoder.
+			json, err := yaml.YAMLToJSON(buf)
+			if err != nil {
+				return nil, fmt.Errorf("could not re-encode manifest to JSON for fallback: %w", err)
+			}
+
+			obj, _, err = unstructured.UnstructuredJSONScheme.Decode(json, nil, nil)
+			if err != nil {
+				return nil, fmt.Errorf("could not decode resource: %w", err)
+			}
+		}
+		objs = append(objs, obj)
+	}
+	return objs, nil
 }
