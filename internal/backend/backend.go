@@ -129,10 +129,17 @@ func (h *HTTPError) Error() string {
 // Values returns a map that is suitable for usage with a `logr.Logger.WithValues` in order to log
 // properly indexed / structured fields.
 func (h *HTTPError) Values() map[string]any {
-	return map[string]any{
+	v := map[string]any{
 		"header": h.Header,
 		"code":   h.StatusCode,
 	}
+	switch {
+	case h.bodyErr != nil:
+		v["body_read_err"] = h.bodyErr.Error()
+	case len(h.body) != 0:
+		v["body"] = string(h.body)
+	}
+	return v
 }
 
 // for testing.
