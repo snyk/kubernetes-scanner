@@ -28,9 +28,9 @@ data:
   "config.yaml": |
     probeAddress: ":{{ .Values.healthCheck.port }}"
     metricsAddress: ":{{ .Values.metrics.port }}"
-    clusterName: {{ required "A clusterName is required" .Values.clusterName | quote }}
+    clusterName: {{ required "A clusterName is required" .Values.config.clusterName | quote }}
     routes: 
-      {{- toYaml .Values.routes | nindent 6 }}
+      {{- toYaml .Values.config.routes | nindent 6 }}
     scanning:
       requeueAfter: {{ .Values.config.scanning.requeueAfter }}
       types:

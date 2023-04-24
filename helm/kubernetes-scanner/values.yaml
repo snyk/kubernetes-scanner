@@ -20,51 +20,50 @@
 
 enabled: true
 
-# MANDATORY: set routes
-# Routes define which resources should be sent to which organizations.
-# It is required to provide at least one valid route to agent to be able to start
-# When using organization level service accounts, service account is authorized
-# to route data only for the organization it is created in.
-# When using group level service accounts, service account can route data to
-# all organizations under the created group.
-# This allows having a single installation of the kubernetes-scanner in a
-# cluster used by multiple organizations.
-#
-# Each route contains
-# * organizationID: Target organizationID for the resources
-# * clusterScopedResources: true if cluster resources should be routed for this organization
-# * namespaces: a list of namespaces. If * wildcard is used,
-# resources from all namespaces will be routed to organization
-#
-# An example routing configuration which will route
-# * All cluster resources and resources from all namespaces
-# to organization aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaaa
-# * All resources from test-cluster-f and prod-cluster-f namespaces
-# to organization ffffffff-ffff-ffff-ffff-fffffffffffff
-#
-# routes:
-#  - organizationID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaaa"
-#    clusterScopedResources: "true"
-#    namespaces:
-#      - "*"
-#  - organizationID: "ffffffff-ffff-ffff-ffff-fffffffffffff"
-#    clusterScopedResources: "false"
-#    namespaces:
-#      - "test-cluster-f"
-#      - "prod-cluster-f"
-
-
-# MANDATORY: clusterName is a friendly name for the cluster that this agent is
-# running on. For example "prod-us" or "dev-eu".
-# If installing scanners to multiple clusters, please configure a different
-# cluster name for each cluster. These do not need to be globally unique, as
-# they are scoped by organization, but using clashing cluster names within an
-# organization may make it difficult for users to associate issues with specific
-# clusters later.
-#
-# clusterName: "default"
-
 config:
+  # MANDATORY: clusterName is a friendly name for the cluster that this agent is
+  # running on. For example "prod-us" or "dev-eu".
+  # If installing scanners to multiple clusters, please configure a different
+  # cluster name for each cluster. These do not need to be globally unique, as
+  # they are scoped by organization, but using clashing cluster names within an
+  # organization may make it difficult for users to associate issues with specific
+  # clusters later.
+  #
+  # clusterName: "default"
+
+  # MANDATORY: set routes
+  # Routes define which resources should be sent to which organizations.
+  # It is required to provide at least one valid route to agent to be able to start
+  # When using organization level service accounts, service account is authorized
+  # to route data only for the organization it is created in.
+  # When using group level service accounts, service account can route data to
+  # all organizations under the created group.
+  # This allows having a single installation of the kubernetes-scanner in a
+  # cluster used by multiple organizations.
+  #
+  # Each route contains
+  # * organizationID: Target organizationID for the resources
+  # * clusterScopedResources: true if cluster resources should be routed for this organization
+  # * namespaces: a list of namespaces. If * wildcard is used,
+  # resources from all namespaces will be routed to organization
+  #
+  # An example routing configuration which will route
+  # * All cluster resources and resources from all namespaces
+  # to organization aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaaa
+  # * All resources from test-cluster-f and prod-cluster-f namespaces
+  # to organization ffffffff-ffff-ffff-ffff-fffffffffffff
+  #
+  # routes:
+  #  - organizationID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaaa"
+  #    clusterScopedResources: true
+  #    namespaces:
+  #      - "*"
+  #  - organizationID: "ffffffff-ffff-ffff-ffff-fffffffffffff"
+  #    clusterScopedResources: false
+  #    namespaces:
+  #      - "test-cluster-f"
+  #      - "prod-cluster-f"
+  routes:
   scanning:
     # define all types that will be scanned on your cluster. This part will be
     # used to generate the config for the scanner, as well as the RBAC
