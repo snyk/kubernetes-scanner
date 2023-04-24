@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -71,31 +72,75 @@ func (b *Backend) Upsert(ctx context.Context, requestID string, obj client.Objec
 		return fmt.Errorf("could not construct request body: %w", err)
 	}
 
+	if _, err := b.do(ctx, http.MethodPost, orgID, requestID, body); err != nil {
+		var httpErr *HTTPError
+		var transportErr *transportError
+		switch {
+		case errors.As(err, &transportErr):
+			b.recordFailure(ctx, 0, obj, deletedAt)
+		case errors.As(err, &httpErr):
+			b.recordFailure(ctx, httpErr.StatusCode, obj, deletedAt)
+		}
+		return fmt.Errorf("could not post resource: %w", err)
+	}
+
+	b.recordSuccess(ctx, obj)
+
+	return nil
+}
+
+func (b *Backend) do(ctx context.Context, method, orgID, requestID string, body io.Reader) (responseBody io.ReadCloser, err error) {
 	endpoint := fmt.Sprintf("%s/hidden/orgs/%s/kubernetes_resources?version=2023-02-20~experimental",
 		b.apiEndpoint, orgID)
 
-	req, err := http.NewRequest(http.MethodPost, endpoint, body)
+	req, err := http.NewRequest(method, endpoint, body)
 	if err != nil {
-		return fmt.Errorf("could not construct request: %w", err)
+		return nil, fmt.Errorf("could not construct HTTP request: %w", err)
 	}
+
 	req.Header.Add("Content-Type", contentTypeJSON)
 	req.Header.Add("Authorization", "token "+b.authorizationKey)
 	req.Header.Add("snyk-request-id", requestID)
 
 	resp, err := b.client.Do(req.WithContext(ctx))
 	if err != nil {
-		b.recordFailure(ctx, 0, obj, deletedAt)
-		return fmt.Errorf("could not post resource: %w", err)
+		return nil, &transportError{err}
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 || resp.StatusCode < 200 {
-		b.recordFailure(ctx, resp.StatusCode, obj, deletedAt)
-		return newHTTPError(resp)
+		return nil, newHTTPError(resp)
 	}
 
-	b.recordSuccess(ctx, obj)
-	return nil
+	return resp.Body, nil
+}
+
+func (b *Backend) List(ctx context.Context, orgID string) ([]ResponseData, error) {
+	body, err := b.do(ctx, http.MethodGet, orgID, "", nil) // TODO: add requestID
+	if err != nil {
+		return nil, fmt.Errorf("error making HTTP request: %w", err)
+	}
+
+	defer body.Close()
+
+	respBody, err := io.ReadAll(body)
+	if err != nil {
+		return nil, fmt.Errorf("could not read HTTP response body: %w", err)
+	}
+
+	var responseBody response
+	if err := json.Unmarshal(respBody, &responseBody); err != nil {
+		return nil, fmt.Errorf("could not unmarshal body: %w", err)
+	}
+
+	return responseBody.Data, nil
+}
+
+type transportError struct {
+	err error
+}
+
+func (t *transportError) Error() string {
+	return fmt.Sprintf("HTTP transport error: %v", t.err)
 }
 
 func newHTTPError(resp *http.Response) error {
@@ -121,7 +166,7 @@ func (h *HTTPError) Error() string {
 	case h.bodyErr != nil:
 		msg += fmt.Sprintf(" but could not read body: %v", h.bodyErr)
 	case len(h.body) != 0:
-		msg += fmt.Sprintf(" with body %s", h.body)
+		msg += fmt.Sprintf(" with body %q", h.body)
 	}
 	return msg
 }
@@ -186,6 +231,27 @@ type resource struct {
 	PreferredVersion string        `json:"preferred_version"`
 	ScannedAt        metav1.Time   `json:"scanned_at"`
 	DeletedAt        *metav1.Time  `json:"deleted_at,omitempty"`
+}
+
+type response struct {
+	Data []ResponseData `json:"data,omitempty"`
+	// technically there's more fields here for pagination, but the type that defines them is in a
+	// private repo & we don't need them (currently)...
+}
+
+type ResponseData struct {
+	Attributes *ResponseAttributes `json:"attributes,omitempty"`
+	ID         string              `json:"id"`
+	Type       string              `json:"type"`
+}
+
+type ResponseAttributes struct {
+	ClusterName      string                 `json:"cluster_name"`
+	DeletedAt        string                 `json:"deleted_at,omitempty"`
+	ID               string                 `json:"id"`
+	ManifestBlob     map[string]interface{} `json:"manifest_blob"`
+	PreferredVersion string                 `json:"preferred_version"`
+	ScannedAt        string                 `json:"scanned_at,omitempty"`
 }
 
 // resourceIdentifier identifies a specific resource. This cannot be done through

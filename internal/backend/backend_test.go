@@ -93,8 +93,9 @@ func TestBackendErrorHandling(t *testing.T) {
 
 	err := b.Upsert(ctx, "req-id", pod, "v1", orgID, nil)
 	require.Error(t, err)
-	require.IsType(t, &HTTPError{}, err)
-	require.Equal(t, 400, err.(*HTTPError).StatusCode)
+	var h *HTTPError
+	require.ErrorAs(t, err, &h)
+	require.Equal(t, 400, h.StatusCode)
 }
 
 func TestMetricsFromBackend(t *testing.T) {

@@ -13,11 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package main
+package controller
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -45,7 +44,6 @@ const (
 )
 
 func TestController(t *testing.T) {
-
 	if testing.Short() {
 		t.Skip("not running controller tests that spawn API server")
 	}
@@ -78,7 +76,7 @@ func TestController(t *testing.T) {
 		MetricsAddress: "localhost:9091",
 	}
 
-	if err := waitForAPI(ctx, c); err != nil {
+	if err := controllertest.WaitForAPI(ctx, c); err != nil {
 		t.Fatalf("error waiting for API: %v", err)
 	}
 
@@ -126,7 +124,7 @@ func TestController(t *testing.T) {
 	go func() {
 		defer backendCancel()
 
-		mgr, err := setupController(cfg, fb)
+		mgr, err := New(cfg, fb)
 		if err != nil {
 			t.Errorf("could not setup controller: %v", err)
 		}
@@ -477,16 +475,4 @@ func (c testClient) Create(ctx context.Context, obj client.Object, opts ...clien
 	defer obj.GetObjectKind().SetGroupVersionKind(gvk)
 
 	return c.Client.Create(ctx, obj, opts...)
-}
-
-func waitForAPI(ctx context.Context, c client.Client) error {
-	for {
-		if err := c.Get(ctx, types.NamespacedName{Name: "default"}, &corev1.Namespace{}); err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				return fmt.Errorf("timeout waiting for API to be ready")
-			}
-			continue
-		}
-		return nil
-	}
 }

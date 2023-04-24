@@ -16,27 +16,24 @@
 package helm
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/snyk/kubernetes-scanner/internal/test"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
 	helmchart "helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/provenance"
 	helmrepo "helm.sh/helm/v3/pkg/repo"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
-	"k8s.io/kubectl/pkg/scheme"
 	"sigs.k8s.io/yaml"
 )
 
-// TemplateChart  templates the helm chart at the given path with the given values and returns the
+// TemplateChart templates the helm chart at the given path with the given values and returns the
 // decoded manifests. Note that CRDs cannot be decoded into their typed representation, and will
 // instead be returned as `unstructured.Unstructured` resources.
 func TemplateChart(path string, values map[string]interface{}) ([]runtime.Object, error) {
@@ -58,36 +55,7 @@ func TemplateChart(path string, values map[string]interface{}) ([]runtime.Object
 		return nil, fmt.Errorf("could not render helm chart: %w", err)
 	}
 
-	multidocReader := utilyaml.NewYAMLReader(bufio.NewReader(strings.NewReader(rel.Manifest)))
-	var objs []runtime.Object
-	for {
-		buf, err := multidocReader.Read()
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return nil, fmt.Errorf("could not read yaml document: %w", err)
-		}
-
-		// if we'd want to decode CRDs, we'd need to register the codecs.
-		obj, _, err := scheme.Codecs.UniversalDeserializer().Decode(buf, nil, nil)
-		if err != nil {
-			// if we couldn't decode it with the core scheme, try decoding it into an ustructured
-			// type. For this, we first need to convert the YAML buffer to JSON, so that we can pass
-			// it to the unstructured decoder.
-			json, err := yaml.YAMLToJSON(buf)
-			if err != nil {
-				return nil, fmt.Errorf("could not re-encode manifest to JSON for fallback: %w", err)
-			}
-
-			obj, _, err = unstructured.UnstructuredJSONScheme.Decode(json, nil, nil)
-			if err != nil {
-				return nil, fmt.Errorf("could not decode resource: %w", err)
-			}
-		}
-		objs = append(objs, obj)
-	}
-	return objs, nil
+	return test.ParseKubernetesManifests(strings.NewReader(rel.Manifest))
 }
 
 type PackagedChart struct {
