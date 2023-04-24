@@ -141,14 +141,7 @@ func Read(configFile string) (*Config, error) {
 		return nil, fmt.Errorf("could not read config file: %w", err)
 	}
 
-	restCfg, err := ctrl.GetConfig()
-	if err != nil {
-		return nil, fmt.Errorf("could not get kubernetes REST config: %v", err)
-	}
-
 	c := &Config{
-		Scheme:     runtime.NewScheme(),
-		RestConfig: restCfg,
 		Egress: &Egress{
 			HTTPClientTimeout:       metav1.Duration{Duration: HTTPClientDefaultTimeout},
 			SnykAPIBaseURL:          SnykAPIDefaultBaseURL,
@@ -156,8 +149,12 @@ func Read(configFile string) (*Config, error) {
 		},
 	}
 
+	if c.RestConfig, err = ctrl.GetConfig(); err != nil {
+		return nil, fmt.Errorf("could not get kubernetes REST config: %v", err)
+	}
+
 	if err := yaml.Unmarshal(b, c); err != nil {
-		return nil, fmt.Errorf("could not unmarshal config file: %w", err)
+		return nil, fmt.Errorf("could not parse config file: %w", err)
 	}
 
 	if len(c.Routes) == 0 {
