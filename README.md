@@ -53,6 +53,41 @@ There are some mandatory fields, each marked with "MANDATORY" in a comment.
 
 See [monitoring.md](docs/monitoring.md).
 
+### HTTP proxy compatibility
+
+Some users may want the scanner to send its HTTP requests via a proxy, for
+example in order to ensure that it is only communicating with an allowlist of
+hosts. The scanner supports the standard `HTTPS_PROXY` environment variable in
+order to accomplish this. Helm users can set it via the extraEnv value, in your
+values file, for example, for example:
+
+```yaml
+extraEnv:
+  - name: HTTPS_PROXY
+    value: "a-proxy:3128"
+```
+
+You will need to allowlist both Snyk's API server, and your Kubernetes API
+server. Snyk HTTP requests are sent to
+`https://$HOST/hidden/orgs/$ORG_ID/kubernetes_resources?version=$API_VERSION`.
+
+`$HOST` will be `api.snyk.io` (unless otherwise communicated). You might use
+this to form the basis of a proxy ACL rule. Example for [`squid`
+proxy](http://www.squid-cache.org/), that denies all other traffic:
+
+```
+acl allowlist dstdomain api.snyk.io <don't forget to add your Kubernetes domain>
+http_access allow allowlist
+http_access deny all
+http_port 3128
+```
+
+`$ORG_ID` is one of your configured org IDs, from the "routes" section of your
+configuration.
+
+The value of the `$API_VERSION` query parameter should not be depended on, it
+may change in subsequent scanner versions.
+
 ## Development
 
 You only need to read this section if you are interested in contributing to this
