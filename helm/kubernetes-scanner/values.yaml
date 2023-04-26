@@ -93,6 +93,18 @@ config:
         # e.g. ClusterRoles.
         # Declare an empty list to _only_ scan non-namespaced resources.
         # namespaces: ["default"]
+        #
+        # Optionally configure fields to be removed.
+        # These paths are dot-separated address for nested values, in the same
+        # format as arguments to `kubectl explain`.
+        # For example, the expression "spec.containers.env" will cause
+        # Kubernetes Pod container environment variables to be removed.
+        # "containers" is an array, and each element of this array is
+        # redacted in this way.
+        #
+        # attributeRemovals:
+        #   - "spec.containers.env"
+        #   - "metadata.managedFields"
       - apiGroups: ["rbac.authorization.k8s.io"]
         versions: ["*"]
         resources:
@@ -112,6 +124,10 @@ config:
           - daemonsets
           - deployments
           - statefulsets
+        # More example attributeRemovals. See above for explanation.
+        # attributeRemovals:
+        #   - "spec.template.spec.containers.env"
+        #   - "metadata.managedFields"
       - apiGroups: ["networking.k8s.io"]
         versions: ["*"]
         resources:

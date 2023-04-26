@@ -53,6 +53,40 @@ There are some mandatory fields, each marked with "MANDATORY" in a comment.
 
 See [monitoring.md](docs/monitoring.md).
 
+### Removing resource attributes
+
+While Kubernetes `v1.Secrets` are designed to separate secret fields into their
+own types, referenced in other types' fields such as container environment
+variable `secretKeyRefs`, some users may wish to prevent certain fields on
+certain types from being sent to Snyk, while still scanning other fields on that
+type.
+
+The scanner supports this sort of attribute removal, as an optional array of
+paths alongside group-version-kind scan config:
+
+```yaml
+- apiGroups: ["apps"]
+    versions: ["*"]
+    resources:
+      - replicasets
+      - daemonsets
+      - deployments
+      - statefulsets
+    attributeRemovals:
+      - "spec.template.spec.containers.env"
+      - "metadata.managedFields"
+```
+
+These paths are dot-separated address for nested values, in the same format as
+arguments to `kubectl explain`. For example, the expression
+"spec.containers.env" will cause Kubernetes Pod container environment variables
+to be removed. "containers" is an array, and each element of this array is
+redacted in this way.
+
+See
+[values.yaml](https://github.com/snyk/kubernetes-scanner/tree/main/helm/kubernetes-scanner/values.yaml)
+for examples in Helm values.
+
 ### HTTP proxy compatibility
 
 Some users may want the scanner to send its HTTP requests via a proxy, for
