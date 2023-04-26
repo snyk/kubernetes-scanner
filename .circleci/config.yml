@@ -5,6 +5,18 @@ orbs:
   snyk: snyk/snyk@1
 
 commands:
+  install-helm:
+    steps:
+      - run:
+          name: Install Helm
+          command: |
+            if command -v helm &> /dev/null; then
+              echo "helm is already installed"
+              exit 0
+            fi
+            curl "https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3" > get_helm.sh
+            chmod 700 get_helm.sh
+            ./get_helm.sh
   save-build-cache:
     steps:
       - save_cache:
@@ -89,6 +101,36 @@ jobs:
             source <(setup-envtest use -p env) 
             go test -race ./...
       - save-build-cache
+
+  "Smoke Test":
+    resource_class: 2xlarge
+    executor:
+      name: go/default
+      tag: "1.20"
+    steps:
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - checkout
+      # saving & restoring the module cache takes almost 6x longer than simply fetching the modules...
+      #- go/mod-download-cached
+      - restore-build-cache
+      - go/mod-download
+      - run:
+          name: Install required tools
+          command: |
+            go install github.com/tilt-dev/ctlptl/cmd/ctlptl@latest
+            go install sigs.k8s.io/kind@latest
+            curl -fsSL https://raw.githubusercontent.com/tilt-dev/tilt/master/scripts/install.sh | bash
+            curl -Lo $(go env GOPATH)/bin/kubectl "https://dl.k8s.io/release/v1.26.2/bin/linux/amd64/kubectl"
+            chmod +x $(go env GOPATH)/bin/kubectl
+      - install-helm
+      - run:
+          name: Spin up local k8s cluster
+          command: ctlptl create cluster kind --registry=ctlptl-registry
+      - run:
+          command: |
+            env TEST_SMOKE=true go test -v ./test
+      - save-build-cache
   "Helm lint":
     resource_class: medium
     executor:
@@ -96,16 +138,7 @@ jobs:
       tag: "1.20"
     steps:
       - checkout
-      - run:
-          name: Install Helm
-          command: |
-            if command -v helm &> /dev/null; then
-              echo "helm is already installed"
-              exit 0
-            fi
-            curl "https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3" > get_helm.sh
-            chmod 700 get_helm.sh
-            ./get_helm.sh
+      - install-helm
       - run:
           command: |
             helm lint ./helm/*
@@ -162,6 +195,12 @@ workflows:
           filters:
             branches:
               ignore: [main, gh-pages]
+      - "Smoke Test":
+          filters:
+            branches:
+              ignore: [main, gh-pages]
+          context:
+            - tiki-smoke-tests
   "Release":
     jobs:
       - "Go test and lint":
