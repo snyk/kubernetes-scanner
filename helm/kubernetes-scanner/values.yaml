@@ -220,6 +220,13 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
+# Optionally supply extra environment variables to the scanner container. Schema
+# is identical to Pod.spec.containers.env. An example is below.
+#
+# extraEnv:
+#   - name: HTTPS_PROXY
+#     value: "a-proxy:3128"
+
 serviceAccount:
   # Specifies whether a service account should be created
   create: true

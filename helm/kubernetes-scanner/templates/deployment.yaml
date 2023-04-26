@@ -58,6 +58,9 @@ spec:
                 secretKeyRef:
                   name: {{ required "A secretName is required!" .Values.secretName }}
                   key: "snykServiceAccountToken"
+          {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: health
               containerPort: {{ .Values.healthCheck.port }}
