@@ -1,0 +1,32 @@
+load('ext://secret', 'secret_from_dict')
+load('ext://namespace', 'namespace_create')
+
+config.define_string('routes_values_yaml',args=False)
+config.define_string('snyk_service_account_token',args=False)
+cfg = config.parse()
+
+# Build the service docker image
+docker_build('snyk/kubernetes-scanner', '../')
+
+helm_dir = '../helm/kubernetes-scanner/'
+secret_name='snyk-service-account'
+
+k8s_yaml(secret_from_dict(
+    name = secret_name,
+    namespace = 'kubernetes-scanner',
+    inputs = {
+        'snykServiceAccountToken': cfg.get('snyk_service_account_token'),
+    },
+))
+
+yaml = helm(
+    helm_dir,
+    name='kubernetes-scanner', 
+    namespace='kubernetes-scanner', 
+    values=[helm_dir+'values.yaml', cfg.get('routes_values_yaml', '')],
+    set=['secretName='+secret_name],
+)
+
+namespace_create(name = 'kubernetes-scanner')
+
+k8s_yaml(yaml)
