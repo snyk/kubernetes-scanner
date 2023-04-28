@@ -193,6 +193,13 @@ type ScanType struct {
 	// namespaces. Omit to scan resources in all namespaces. Does not affect the scanning of
 	// cluster-scoped resources.
 	Namespaces []string `json:"namespaces,omitempty"`
+
+	// These are dot-separated address for nested values, in the same format as
+	// arguments to `kubectl explain`.
+	// For example, the expr "spec.containers.env" will cause Kubernetes Pod
+	// container environment variables to be removed. "containers" is an array,
+	// and each element of this array is removed.
+	PathsToRemove []string `json:"attributeRemovals"`
 }
 
 // GetGVKs returns all the GVKs that are defined in the ScanType and are available on the server.

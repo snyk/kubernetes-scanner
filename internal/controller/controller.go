@@ -24,6 +24,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/snyk/kubernetes-scanner/internal/backend"
 	"github.com/snyk/kubernetes-scanner/internal/config"
+	"github.com/snyk/kubernetes-scanner/internal/kubeobjects"
 	"golang.org/x/exp/slices"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -60,12 +61,13 @@ func New(cfg *config.Config, s Store) (manager.Manager, error) {
 
 		for _, gvk := range gvks {
 			if err := (&reconciler{
-				Reader:       mgr.GetClient(),
-				requeueAfter: cfg.Scanning.RequeueAfter.Duration,
-				Store:        s,
-				gvk:          gvk,
-				routes:       newResourceRoutes(cfg.Routes),
-				namespaces:   scanType.Namespaces,
+				Reader:        mgr.GetClient(),
+				requeueAfter:  cfg.Scanning.RequeueAfter.Duration,
+				Store:         s,
+				gvk:           gvk,
+				routes:        newResourceRoutes(cfg.Routes),
+				namespaces:    scanType.Namespaces,
+				pathsToRemove: scanType.PathsToRemove,
 			}).SetupWithManager(mgr); err != nil {
 				return nil, fmt.Errorf("unable to create controller for GVK %v: %w", gvk, err)
 			}
@@ -87,8 +89,9 @@ type reconciler struct {
 	requeueAfter time.Duration
 	gvk          config.GroupVersionKind
 	Store
-	namespaces []string
-	routes     resourceRoutes
+	namespaces    []string
+	routes        resourceRoutes
+	pathsToRemove []string
 }
 
 type resourceRoutes struct {
@@ -157,7 +160,7 @@ type Store interface {
 
 // newObject creates a new object for this reconciler with the reconciler's GVK and the requests
 // name & namespace. This is all we know about an object without getting it from the Kube API.
-func (r *reconciler) newObject(req ctrl.Request) client.Object {
+func (r *reconciler) newObject(req ctrl.Request) *unstructured.Unstructured {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(r.gvk.GroupVersionKind)
 	obj.SetName(req.Name)
@@ -220,6 +223,7 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		reqLogger := logger.WithValues("organization_id", orgID, "request_id", requestID)
 		ctx = log.IntoContext(ctx, reqLogger)
 
+		r.removeConfiguredAttributes(ctx, obj)
 		if err := r.Store.Upsert(ctx, requestID, obj, r.gvk.PreferredVersion, orgID, deleted); err != nil {
 			var httpErr *backend.HTTPError
 			if errors.As(err, &httpErr) {
@@ -252,6 +256,19 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	return ctrl.Result{RequeueAfter: r.requeueAfter}, nil
+}
+
+func (r *reconciler) removeConfiguredAttributes(ctx context.Context, obj *unstructured.Unstructured) {
+	if len(r.pathsToRemove) == 0 {
+		return
+	}
+
+	logger := log.FromContext(ctx)
+	logger.Info("removing configured resource attributes")
+
+	for _, pathToRemove := range r.pathsToRemove {
+		kubeobjects.RemoveAttributes(obj, pathToRemove)
+	}
 }
 
 // SetupWithManager sets up the controller with the Manager.
