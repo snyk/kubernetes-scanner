@@ -16,14 +16,37 @@ There is a [Helm chart](https://helm.sh) within this repo in
 that is hosted through Github pages in
 `https://snyk.github.io/kubernetes-scanner`.
 
+Initially you need to create a kubernetes secret that contains the API token for the 
+[service account](https://docs.snyk.io/snyk-admin/service-accounts) 
+
+The service account must have one of the following roles:
+* Org Admin
+* Group Admin
+* Custom Role with "Publish Kubernetes Resources" permission
+
+If organization level service account is used, it must be associated with the organizationID configured to correlate the 
+kubernetes data. Group level service accounts can correlate data to any organization under the group.
+
+```shell
+kubectl create secret generic <secret containing your auth credentials> \
+  --from-literal=snykServiceAccountToken=<your-service-account-token>
+```
+
 To install the Helm chart with all default values:
 
 ```shell
 helm repo add kubernetes-scanner https://snyk.github.io/kubernetes-scanner
+
+# Update repository if it already exists
+helm repo update
+
 helm install <release-name> \
-    -f organizationID=<your Snyk organization ID> \
-    -f secretName=<secret containing your auth credentials> \
-    kubernetes-scanner/kubernetes-scanner
+	--set "snykServiceAccountToken=<secret containing your auth credentials>" \
+	--set "config.clusterName=<your human friendly cluster name>" \
+	--set "config.routes[0].organizationID=<your Snyk organization ID>" \
+	--set "config.routes[0].clusterScopedResources=true" \
+	--set "config.routes[0].namespaces[0]=*"  \
+	kubernetes-scanner/kubernetes-scanner
 ```
 
 The actor running Helm needs to be empowered to create the resources templated
@@ -31,11 +54,11 @@ by this chart.
 
 Or using chart dependencies:
 
-```
+```yaml
 # Chart.yaml
 dependencies:
   - name: kubernetes-scanner
-    version: v0.10.0
+    version: v0.21.0 # use the latest available version
     repository: https://snyk.github.io/kubernetes-scanner
     alias: kubernetes-scanner
 
