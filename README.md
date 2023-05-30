@@ -41,7 +41,7 @@ helm repo add kubernetes-scanner https://snyk.github.io/kubernetes-scanner
 helm repo update
 
 helm install <release-name> \
-	--set "snykServiceAccountToken=<secret containing your auth credentials>" \
+	--set "secretName=<secret containing your auth credentials>" \
 	--set "config.clusterName=<your human friendly cluster name>" \
 	--set "config.routes[0].organizationID=<your Snyk organization ID>" \
 	--set "config.routes[0].clusterScopedResources=true" \
