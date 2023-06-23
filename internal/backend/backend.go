@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"strconv"
 	"sync"
@@ -327,9 +326,7 @@ func newMetrics(registry prometheus.Registerer) *metrics {
 	}
 
 	registry.MustRegister(m)
-
-	// we need to set an initial value so that it is not 0.
-	m.oldestFailureTimestamp.Set(math.Inf(0))
+	m.oldestFailureTimestamp.Set(0)
 
 	return m
 }
@@ -404,7 +401,7 @@ func (m *metrics) recordSuccess(ctx context.Context, obj client.Object) {
 	}
 
 	if m.oldest == nil {
-		m.oldestFailureTimestamp.Set(math.Inf(0))
+		m.oldestFailureTimestamp.Set(0)
 		log.FromContext(ctx).Info("removed oldest failure, no new ones")
 	} else {
 		m.oldestFailureTimestamp.Set(float64(*m.oldest))
@@ -419,7 +416,7 @@ type upsertFailure struct {
 }
 
 func (m *metrics) Collect(ch chan<- prometheus.Metric) {
-	age := math.Inf(0)
+	age := float64(0)
 	if m.oldest != nil {
 		age = float64(now().Unix() - *m.oldest)
 	}
