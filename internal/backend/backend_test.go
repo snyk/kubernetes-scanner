@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"path"
@@ -390,7 +389,7 @@ func TestMetricsOldest(t *testing.T) {
 		requireGauge(t, registry, metricName, float64(*m.failures[newResourceID(res)].added))
 
 		m.recordSuccess(ctx, res)
-		requireGauge(t, registry, metricName, math.Inf(0))
+		requireGauge(t, registry, metricName, 0)
 	})
 
 	t.Run("cleanup with replacement", func(t *testing.T) {
@@ -424,7 +423,7 @@ func TestMetricsOldest(t *testing.T) {
 		requireGauge(t, registry, ageMetricName, 50)
 
 		m.recordSuccess(ctx, res)
-		requireGauge(t, registry, ageMetricName, math.Inf(0))
+		requireGauge(t, registry, ageMetricName, 0)
 	})
 }
 
