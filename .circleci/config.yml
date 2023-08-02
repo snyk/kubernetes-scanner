@@ -1,5 +1,6 @@
 version: 2.1
 orbs:
+  prodsec: snyk/prodsec-orb@1.0
   commitlint: conventional-changelog/commitlint@1.0.0
   go: circleci/go@1
   snyk: snyk/snyk@1
@@ -173,6 +174,11 @@ jobs:
 workflows:
   "Test":
     jobs:
+      - prodsec/secrets-scan:
+          name: Scan repository for secrets
+          context:
+            - snyk-bot-slack
+          channel: group-cloud-security-vulnerabilities-alerts
       - "Go test and lint":
           filters:
             branches:
