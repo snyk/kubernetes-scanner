@@ -2,9 +2,9 @@ package test
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"os"
 	"os/exec"
 	"reflect"
@@ -200,6 +200,14 @@ type helmValues struct {
 	Config config.Config `json:"config"`
 }
 
+func getSnykAPIBaseURL() string {
+	if api := os.Getenv("SNYK_API"); api != "" {
+		return api
+	}
+
+	return "https://api.dev.snyk.io"
+}
+
 func newHelmValues() (vals helmValues, filename string, err error) {
 	orgID := os.Getenv("TEST_ORGANIZATION_ID")
 	if orgID == "" {
@@ -229,7 +237,7 @@ func newHelmValues() (vals helmValues, filename string, err error) {
 				RequeueAfter: metav1.Duration{Duration: time.Hour},
 			},
 			Egress: &config.Egress{
-				SnykAPIBaseURL:          "https://api.dev.snyk.io",
+				SnykAPIBaseURL:          getSnykAPIBaseURL(),
 				SnykServiceAccountToken: snykSAToken,
 			},
 		},
@@ -256,9 +264,8 @@ func newHelmValues() (vals helmValues, filename string, err error) {
 
 // returns a new random cluster name with a "smoke_test_" prefix.
 func newClusterName() string {
-	rand.Seed(time.Now().UnixNano())
 	b := make([]byte, 16)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	return fmt.Sprintf("smoke_test_%x", b)
 }
 
