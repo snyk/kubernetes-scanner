@@ -49,16 +49,34 @@ commands:
           organization: snyk-apps
 
 jobs:
-  "Snyk scan":
-    resource_class: small
+  # All Snyk scanning jobs use a SNYK_TOKEN from the tiki-snyk Circle context,
+  # which correponds to the tiki-snyk-circle-context service account in
+  # https://app.snyk.io/org/cloud-cloud/manage/service-accounts
+  # It's not in 1password, just rotate it and configure it in Circle directly if
+  # needed.
+  snyk-deps:
+    resource_class: medium
     docker:
       - image: "cimg/go:1.20"
     steps:
       - checkout
       - snyk/scan:
           fail-on-issues: true
-          monitor-on-build: false # ?
-          organization: snyk-apps
+          monitor-on-build: false
+          organization: cloud-cloud
+
+  snyk-code:
+    resource_class: medium
+    docker:
+      - image: "cimg/go:1.20"
+    steps:
+      - checkout
+      - snyk/scan:
+          organization: cloud-cloud
+          command: code test
+          fail-on-issues: true
+          severity-threshold: high
+          monitor-on-build: false
 
   "Check licenses":
     resource_class: small
@@ -191,8 +209,13 @@ workflows:
           filters:
             branches:
               ignore: [main, gh-pages]
-      - "Snyk scan":
-          context: ["snyk-apps"]
+      - snyk-deps:
+          context: ["tiki-snyk"]
+          filters:
+            branches:
+              ignore: [main, gh-pages]
+      - snyk-code:
+          context: ["tiki-snyk"]
           filters:
             branches:
               ignore: [main, gh-pages]
