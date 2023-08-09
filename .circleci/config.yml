@@ -229,7 +229,7 @@ workflows:
             branches:
               ignore: [main, gh-pages]
           context:
-            - tiki-smoke-tests
+            - tiki-smoke-tests-dev16
   "Release":
     jobs:
       - "Go test and lint":
