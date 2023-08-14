@@ -16,15 +16,16 @@ There is a [Helm chart](https://helm.sh) within this repo in
 that is hosted through Github pages in
 `https://snyk.github.io/kubernetes-scanner`.
 
-Initially you need to create a kubernetes secret that contains the API token for the 
-[service account](https://docs.snyk.io/snyk-admin/service-accounts) 
+Initially you need to create a kubernetes secret that contains the API token for the
+[service account](https://docs.snyk.io/snyk-admin/service-accounts)
 
 The service account must have one of the following roles:
-* Org Admin
-* Group Admin
-* Custom Role with "Publish Kubernetes Resources" permission
 
-If organization level service account is used, it must be associated with the organizationID configured to correlate the 
+- Org Admin
+- Group Admin
+- Custom Role with "Publish Kubernetes Resources" permission
+
+If organization level service account is used, it must be associated with the organizationID configured to correlate the
 kubernetes data. Group level service accounts can correlate data to any organization under the group.
 
 ```shell
@@ -61,7 +62,6 @@ dependencies:
     version: v0.21.0 # use the latest available version
     repository: https://snyk.github.io/kubernetes-scanner
     alias: kubernetes-scanner
-
 ```
 
 Release versions can be found [in GitHub](https://github.com/snyk/kubernetes-scanner/releases).
@@ -175,6 +175,30 @@ eval "$(setup-envtest use -p env)"
 
 For more information on `setup-envtest`, we refer to
 [their documentation](https://pkg.go.dev/sigs.k8s.io/controller-runtime/tools/setup-envtest#section-readme).
+
+### Running smoke tests
+
+If you want to run smoke tests locally, you will need:
+
+- [Tilt](https://tilt.dev)
+- a working kubernetes environment, [compatible with Tilt](https://docs.tilt.dev/choosing_clusters.html)
+- an organization that is allowed to send Kubernetes resources
+- a service account token, attached to that organisation, that has access to
+  send Kubernetes resources.
+
+Note that the smoke tests run against `https://api.dev.snyk.io` by default,
+which means both the organisation and service account token need to be created
+in that environment!
+
+With these prerequisites, the smoke tests can be run like this:
+
+```bash
+env SNYK_API=https://api.dev.snyk.io \
+    TEST_SNYK_SERVICE_ACCOUNT_TOKEN=<token> \
+    TEST_ORGANIZATION_ID=<org ID> \
+    TEST_SMOKE=true \
+    go test -v .
+```
 
 ### Architecture
 
