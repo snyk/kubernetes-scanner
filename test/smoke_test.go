@@ -106,47 +106,73 @@ func runTests(ctx context.Context, cfg config.Config) error {
 		return fmt.Errorf("error waiting for deployment to be up: %w", err)
 	}
 
-	// TODO: the tests currently check whether the single node we expect in our test env has synced
-	// to the backend. This isn't much, and we probably want to extend this. Also, the code could be
-	// cleaned up a bit as well.
-	nl := &corev1.NodeList{}
-	if err := c.List(ctx, nl); err != nil {
-		return fmt.Errorf("error listing nodes: %w", err)
-	}
-
 	b := backend.New(cfg.ClusterName, cfg.Egress, prometheus.NewPedanticRegistry())
 	orgID := cfg.Routes[0].OrganizationID
 
+	// TODO: the tests currently check whether the single node we expect in our test env has synced
+	// to the backend. This isn't much, and we probably want to extend this. Also, the code could be
+	// cleaned up a bit as well.
 	if err := eventually(func() error {
+		// list all local nodes
+		nl := &corev1.NodeList{}
+		if err := c.List(ctx, nl); err != nil {
+			return fmt.Errorf("error listing nodes: %w", err)
+		}
+		if len(nl.Items) != 1 {
+			return fmt.Errorf("unexpected amount of nodes in CI env: %v", len(nl.Items))
+		}
+
+		// and list all "remote" nodes
 		resp, err := b.List(ctx, orgID)
 		if err != nil {
 			return fmt.Errorf("could not execute list request: %w", err)
 		}
-		var nodesFromBackend []*corev1.Node
-		for _, data := range resp {
-			if data.Attributes.ClusterName != cfg.ClusterName {
-				continue
-			}
 
-			unstructuredObj := &unstructured.Unstructured{Object: data.Attributes.ManifestBlob}
-			if unstructuredObj.GetKind() == "Node" {
-				node := &corev1.Node{}
-				if err := runtime.DefaultUnstructuredConverter.FromUnstructured(data.Attributes.ManifestBlob, node); err != nil {
-					return fmt.Errorf("error converting unstructured resource: %w", err)
-				}
-				nodesFromBackend = append(nodesFromBackend, node)
-			}
+		nodesFromBackend, err := toNodes(resp, cfg.ClusterName)
+		if err != nil {
+			return fmt.Errorf("could not convert response data to nodes: %w", err)
 		}
 
 		if len(nodesFromBackend) != 1 {
 			return fmt.Errorf("got wrong amount of nodes from backend: %v", len(nodesFromBackend))
 		}
 
-		return assertNodesEqual(&nl.Items[0], nodesFromBackend[0])
+		return assertNodesEqual(nl.Items[0], nodesFromBackend[0])
 	}, time.Minute, 3*time.Second); err != nil {
 		return fmt.Errorf("error waiting for backend to receive node: %w", err)
 	}
 
+	return nil
+}
+
+func toNodes(rd []backend.ResponseData, clusterName string) ([]corev1.Node, error) {
+	nodesFromBackend := make([]corev1.Node, 0, len(rd))
+	for _, data := range rd {
+		if data.Attributes.ClusterName != clusterName {
+			continue
+		}
+
+		n := &corev1.Node{TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Node"}}
+		if err := fromUnstructured(data.Attributes.ManifestBlob, n); err != nil {
+			return nil, err
+		}
+
+		nodesFromBackend = append(nodesFromBackend, *n)
+	}
+
+	return nodesFromBackend, nil
+}
+
+func fromUnstructured(b map[string]interface{}, into client.Object) error {
+	unstructuredObj := &unstructured.Unstructured{Object: b}
+	if unstructuredObj.GetObjectKind().GroupVersionKind() != into.GetObjectKind().GroupVersionKind() {
+		return fmt.Errorf("object kinds do not match. expected=%v, got=%v",
+			into.GetObjectKind().GroupVersionKind(), unstructuredObj.GetObjectKind().GroupVersionKind())
+	}
+
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(b, into); err != nil {
+		return fmt.Errorf("error converting unstructured resource: %w", err)
+	}
 	return nil
 }
 
@@ -269,7 +295,7 @@ func newClusterName() string {
 	return fmt.Sprintf("smoke_test_%x", b)
 }
 
-func assertNodesEqual(expected, actual *corev1.Node) error {
+func assertNodesEqual(expected, actual corev1.Node) error {
 	removeManagedFieldsTimestamp(expected.ManagedFields)
 	removeManagedFieldsTimestamp(actual.ManagedFields)
 	removeNodeConditionsLastHeartbeat(expected.Status.Conditions)
