@@ -1,0 +1,11 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: kubernetes-scanner
+  annotations:
+    github.com/project-slug: snyk/kubernetes-scanner
+    github.com/team-slug: snyk/cloud-engines
+spec:
+  type: external-tooling
+  lifecycle: "-"
+  owner: cloud-engines
