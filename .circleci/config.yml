@@ -182,7 +182,7 @@ jobs:
   semantic-release:
     resource_class: small
     docker:
-      - image: cimg/node:18.15
+      - image: cimg/node:18.18
     steps:
       - checkout
       - run:
