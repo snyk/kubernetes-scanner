@@ -25,6 +25,8 @@ rules:
       {{- toYaml .apiGroups | nindent 6}}
     resources: 
       {{- toYaml .resources | nindent 6}}
+    resourceNames:
+      {{- toYaml .resourceNames | nindent 6}} 
   {{- end }}
 
 ---
