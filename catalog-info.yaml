@@ -4,8 +4,8 @@ metadata:
   name: kubernetes-scanner
   annotations:
     github.com/project-slug: snyk/kubernetes-scanner
-    github.com/team-slug: snyk/cloud-engines
+    github.com/team-slug: snyk/appsecex-integrations
 spec:
   type: external-tooling
   lifecycle: "-"
-  owner: cloud-engines
+  owner: appsecex-integrations
