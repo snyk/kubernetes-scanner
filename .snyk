@@ -1,0 +1,11 @@
+# Snyk (https://snyk.io) policy file, patches or ignores known vulnerabilities.
+version: v1.25.0
+# ignores vulnerabilities until expiry date; change duration by modifying expiry date
+ignore:
+  SNYK-CC-K8S-1:
+    - 'internal/kubeobjects/testdata/daemonset.json > *':
+        reason: test data
+        created: 2024-02-12T12:12:23.598Z
+    - 'internal/kubeobjects/testdata/daemonset-redacted.json > *':
+        reason: test data
+        created: 2024-02-12T12:12:23.598Z
