@@ -35,12 +35,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
 func New(cfg *config.Config, s Store) (manager.Manager, error) {
 	mgr, err := ctrl.NewManager(cfg.RestConfig, ctrl.Options{
 		Scheme:                 cfg.Scheme,
-		MetricsBindAddress:     cfg.MetricsAddress,
+		Metrics:                metricsserver.Options{BindAddress: cfg.MetricsAddress},
 		HealthProbeBindAddress: cfg.ProbeAddress,
 	})
 	if err != nil {

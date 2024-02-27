@@ -20,8 +20,10 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	k8sconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 const scannerNamespace = "kubernetes-scanner"
@@ -92,6 +94,10 @@ func runTilt(ctx context.Context, tiltCmd string, args ...string) error {
 }
 
 func runTests(ctx context.Context, cfg config.Config) error {
+	// Logger must be set or else the controller-runtime framework will
+	// complain.
+	ctrl.SetLogger(zap.New())
+
 	restCfg, err := k8sconfig.GetConfig()
 	if err != nil {
 		return fmt.Errorf("could not get REST config: %w", err)

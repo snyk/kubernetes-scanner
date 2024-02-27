@@ -57,7 +57,7 @@ jobs:
   security_scans:
     resource_class: medium
     docker:
-      - image: "cimg/go:1.20"
+      - image: "cimg/go:1.21"
     steps:
       - checkout
       - prodsec/security_scans:
@@ -67,7 +67,7 @@ jobs:
     resource_class: small
     executor:
       name: go/default
-      tag: "1.20"
+      tag: "1.21"
     steps:
       - checkout
       - run:
@@ -79,7 +79,7 @@ jobs:
     resource_class: medium
     executor:
       name: go/default
-      tag: "1.20"
+      tag: "1.21"
     steps:
       - checkout
       # saving & restoring the module cache takes almost 6x longer than simply fetching the modules...
@@ -110,7 +110,7 @@ jobs:
     resource_class: 2xlarge
     executor:
       name: go/default
-      tag: "1.20"
+      tag: "1.21"
     steps:
       - setup_remote_docker:
           docker_layer_caching: true
@@ -139,7 +139,7 @@ jobs:
     resource_class: medium
     executor:
       name: go/default
-      tag: "1.20"
+      tag: "1.21"
     steps:
       - checkout
       - install-helm
@@ -149,7 +149,7 @@ jobs:
 
   release:
     resource_class: medium
-    docker: [image: "cimg/go:1.20"]
+    docker: [image: "cimg/go:1.21"]
     steps:
       - checkout
       - build-docker-image
@@ -167,7 +167,7 @@ jobs:
   semantic-release:
     resource_class: small
     docker:
-      - image: cimg/node:18.18
+      - image: cimg/node:21.6.1
     steps:
       - checkout
       - run:
