@@ -232,9 +232,14 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 				// message in the logs. We want to get the underlying values though, to have indexed
 				// fields.
 				reqLogger = reqLogger.WithValues("http_response_error", httpErr.Values())
-			}
 
 			reqLogger.Error(fmt.Errorf("could not upsert to store: %w", err), "failed reconciliation")
+
+			if errors.As(err, &httpErr) {
+				// Do a retry instead with exponential backoff.
+				return ctrl.Result{RequeueAfter: 1}, nil
+			}
+
 			if allErrs == nil {
 				allErrs = err
 			} else {
