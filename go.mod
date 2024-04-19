@@ -5,6 +5,7 @@ go 1.21
 toolchain go1.21.5
 
 require (
+	github.com/cenkalti/backoff/v4 v4.2.1
 	github.com/go-git/go-git/v5 v5.11.0
 	github.com/go-logr/logr v1.4.1
 	github.com/google/go-github/v49 v49.0.0

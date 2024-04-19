@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/google/uuid"
 	"github.com/snyk/kubernetes-scanner/internal/backend"
 	"github.com/snyk/kubernetes-scanner/internal/config"
@@ -93,6 +94,7 @@ type reconciler struct {
 	namespaces    []string
 	routes        resourceRoutes
 	pathsToRemove []string
+	httpBackOff   *backoff.BackOff
 }
 
 type resourceRoutes struct {
@@ -232,10 +234,15 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 				// message in the logs. We want to get the underlying values though, to have indexed
 				// fields.
 				reqLogger = reqLogger.WithValues("http_response_error", httpErr.Values())
+			}
 
 			reqLogger.Error(fmt.Errorf("could not upsert to store: %w", err), "failed reconciliation")
 
-			if errors.As(err, &httpErr) {
+			// When we return an error from this function, the
+			// controller-runtime framework will already use a exponential
+			// backoff mechanism.  However, this is works per-item, and we want
+			// to use a "global" one if our backend is having issues.
+			if errors.As(err, &httpErr) && httpErr.StatusCode >= 500 && httpErr.StatusCode < 600 {
 				// Do a retry instead with exponential backoff.
 				return ctrl.Result{RequeueAfter: 1}, nil
 			}
