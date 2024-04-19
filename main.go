@@ -16,6 +16,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -68,7 +69,16 @@ func runController(configFile string, logOpts *zap.Options) (code int) {
 		return 1
 	}
 
-	mgr, err := controller.New(cfg, backend.New(cfg.ClusterName, cfg.Egress, ctrlmetrics.Registry))
+	backend := backend.New(cfg.ClusterName, cfg.Egress, ctrlmetrics.Registry)
+	for _, org := range cfg.Organizations() {
+		ctrl.Log.Info("sanity checking backend config", "org_id", org)
+		if err := backend.SanityCheck(context.Background(), org); err != nil {
+			ctrl.Log.Error(err, "sanity check failed")
+			return 1
+		}
+	}
+
+	mgr, err := controller.New(cfg, backend)
 	if err != nil {
 		ctrl.Log.Error(err, "error setting up controller")
 		return 1
