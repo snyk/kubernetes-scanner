@@ -23,7 +23,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"path"
 	"sync"
 	"testing"
 	"time"
@@ -60,7 +59,7 @@ func TestBackend(t *testing.T) {
 	const orgID = "org-123"
 	ctx := context.Background()
 	tu := testUpstream{t: t, preferredVersion: "v1", orgID: orgID, auth: testToken}
-	ts := httptest.NewServer(http.HandlerFunc(tu.Handle))
+	ts := httptest.NewServer(&tu)
 	defer ts.Close()
 
 	b := New("my-pet-cluster", &config.Egress{
@@ -81,7 +80,7 @@ func TestBackendErrorHandling(t *testing.T) {
 	const orgID = "org-123"
 	ctx := context.Background()
 	tu := testUpstream{t: t, preferredVersion: "v1", orgID: orgID, auth: testToken, statusCodeToReturn: 400}
-	ts := httptest.NewServer(http.HandlerFunc(tu.Handle))
+	ts := httptest.NewServer(&tu)
 	defer ts.Close()
 
 	b := New("my-pet-cluster", &config.Egress{
@@ -101,7 +100,7 @@ func TestMetricsFromBackend(t *testing.T) {
 	const orgID = "org-123"
 	ctx := context.Background()
 	tu := testUpstream{t: t, preferredVersion: "v1", orgID: orgID, auth: testToken, statusCodeToReturn: 400}
-	ts := httptest.NewServer(http.HandlerFunc(tu.Handle))
+	ts := httptest.NewServer(&tu)
 	defer ts.Close()
 
 	b := New("my-pet-cluster", &config.Egress{
@@ -131,21 +130,17 @@ type testUpstream struct {
 	statusCodeToReturn int
 }
 
-func (tu *testUpstream) Handle(w http.ResponseWriter, r *http.Request) {
+func (tu *testUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Authorization") != "token "+tu.auth {
 		http.Error(w, fmt.Sprintf("invalid authorization header provided: %v", r.Header.Get("Authorization")), 403)
 		return
 	}
-	matches, err := path.Match(fmt.Sprintf("*/hidden/orgs/%s/kubernetes_resources", tu.orgID), r.URL.Path)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("invalid path, could not match: %v", err), 400)
-		return
-	}
-	if !matches {
-		http.Error(w, fmt.Sprintf("path does not match expectations: %v", r.URL.Path), 400)
-		return
-	}
+	mux := http.NewServeMux()
+	mux.HandleFunc(fmt.Sprintf("/hidden/orgs/%s/kubernetes_resources", tu.orgID), tu.handleKubernetesResources)
+	mux.ServeHTTP(w, r)
+}
 
+func (tu *testUpstream) handleKubernetesResources(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	defer r.Body.Close()
 	if err != nil {
