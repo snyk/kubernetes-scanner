@@ -80,7 +80,7 @@ func (b *Backend) SanityCheck(ctx context.Context, orgID string) error {
 		return &transportError{err}
 	}
 
-	if resp.StatusCode >= 300 || resp.StatusCode < 200 {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return newHTTPError(resp)
 	}
 
