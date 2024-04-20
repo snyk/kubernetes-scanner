@@ -121,6 +121,23 @@ func TestMetricsFromBackend(t *testing.T) {
 	require.False(t, ok)
 }
 
+func TestSanityBackend(t *testing.T) {
+	const orgID = "org-123"
+	ctx := context.Background()
+	tu := testUpstream{t: t, preferredVersion: "v1", orgID: orgID, auth: testToken}
+	ts := httptest.NewServer(&tu)
+	defer ts.Close()
+
+	b := New("my-pet-cluster", &config.Egress{
+		HTTPClientTimeout:       metav1.Duration{Duration: 1 * time.Second},
+		SnykAPIBaseURL:          ts.URL,
+		SnykServiceAccountToken: testToken,
+	}, prometheus.NewPedanticRegistry())
+
+	require.NoError(t, b.SanityCheck(ctx, orgID))
+	require.Error(t, b.SanityCheck(ctx, "org-456"))
+}
+
 type testUpstream struct {
 	t                  *testing.T
 	preferredVersion   string
@@ -137,6 +154,7 @@ func (tu *testUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc(fmt.Sprintf("/hidden/orgs/%s/kubernetes_resources", tu.orgID), tu.handleKubernetesResources)
+	mux.HandleFunc(fmt.Sprintf("/rest/orgs/%s", tu.orgID), tu.handleOrg)
 	mux.ServeHTTP(w, r)
 }
 
@@ -171,6 +189,9 @@ func (tu *testUpstream) handleKubernetesResources(w http.ResponseWriter, r *http
 	}
 
 	require.Equal(tu.t, expected, req.Data.Attributes.Resources)
+}
+
+func (tu *testUpstream) handleOrg(w http.ResponseWriter, r *http.Request) {
 }
 
 var pod = &corev1.Pod{
