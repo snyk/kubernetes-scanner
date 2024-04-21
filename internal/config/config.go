@@ -363,13 +363,13 @@ func newNotFoundError(gvr schema.GroupVersionResource) error {
 // Organizations retrieves a list of unique Snyk Organization IDs present in
 // this configuration.
 func (c *Config) Organizations() []string {
-	orgs := map[string]struct{}{}
+	orgs := []string{}
+	seen := map[string]struct{}{}
 	for _, route := range c.Routes {
-		orgs[route.OrganizationID] = struct{}{}
+    	if _, ok := seen[route.OrganizationID]; !ok {
+    		orgs = append(orgs, route.OrganizationID)
+    		seen[route.OrganizationID] = struct{}{}
+    	}
 	}
-	out := []string{}
-	for org := range orgs {
-		out = append(out, org)
-	}
-	return out
+	return orgs
 }
