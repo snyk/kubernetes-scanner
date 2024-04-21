@@ -359,3 +359,17 @@ func (d *discoveryHelper) findGVK(gvr schema.GroupVersionResource) (schema.Group
 func newNotFoundError(gvr schema.GroupVersionResource) error {
 	return k8serrors.NewNotFound(gvr.GroupResource(), gvr.Resource)
 }
+
+// Organizations retrieves a list of unique Snyk Organization IDs present in
+// this configuration.
+func (c *Config) Organizations() []string {
+	orgs := []string{}
+	seen := map[string]struct{}{}
+	for _, route := range c.Routes {
+    	if _, ok := seen[route.OrganizationID]; !ok {
+    		orgs = append(orgs, route.OrganizationID)
+    		seen[route.OrganizationID] = struct{}{}
+    	}
+	}
+	return orgs
+}

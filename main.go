@@ -16,14 +16,17 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/snyk/kubernetes-scanner/build"
 	"github.com/snyk/kubernetes-scanner/internal/backend"
 	"github.com/snyk/kubernetes-scanner/internal/config"
 	"github.com/snyk/kubernetes-scanner/internal/controller"
+	"github.com/snyk/kubernetes-scanner/internal/retry"
 	"github.com/snyk/kubernetes-scanner/licenses"
 
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -68,7 +71,19 @@ func runController(configFile string, logOpts *zap.Options) (code int) {
 		return 1
 	}
 
-	mgr, err := controller.New(cfg, backend.New(cfg.ClusterName, cfg.Egress, ctrlmetrics.Registry))
+	backend := backend.New(cfg.ClusterName, cfg.Egress, ctrlmetrics.Registry)
+	for _, org := range cfg.Organizations() {
+		err := retry.Retry(ctrl.Log, 3, 5*time.Second, func() error {
+			ctrl.Log.Info("sanity checking backend config", "org_id", org)
+			return backend.SanityCheck(context.Background(), org)
+		})
+		if err != nil {
+			ctrl.Log.Error(err, "sanity check failed")
+			return 1
+		}
+	}
+
+	mgr, err := controller.New(cfg, backend)
 	if err != nil {
 		ctrl.Log.Error(err, "error setting up controller")
 		return 1

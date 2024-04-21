@@ -65,6 +65,28 @@ func New(clusterName string, cfg *config.Egress, reg prometheus.Registerer) *Bac
 
 const contentTypeJSON = "application/vnd.api+json"
 
+func (b *Backend) SanityCheck(ctx context.Context, orgID string) error {
+	endpoint := fmt.Sprintf("%s/rest/orgs/%s?version=2024-04-11", b.apiEndpoint, orgID)
+
+	req, err := http.NewRequest(http.MethodGet, endpoint, http.NoBody)
+	if err != nil {
+		return fmt.Errorf("could not construct HTTP request: %w", err)
+	}
+
+	req.Header.Add("Authorization", "token "+b.authorizationKey)
+
+	resp, err := b.client.Do(req.WithContext(ctx))
+	if err != nil {
+		return &transportError{err}
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return newHTTPError(resp)
+	}
+
+	return nil
+}
+
 func (b *Backend) Upsert(ctx context.Context, requestID string, obj client.Object, preferredVersion string, orgID string, deletedAt *metav1.Time) error {
 	body, err := b.newPostBody(obj, preferredVersion, deletedAt)
 	if err != nil {

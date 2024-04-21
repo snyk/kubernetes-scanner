@@ -326,3 +326,14 @@ func (fd *fakeDiscovery) findGVK(gvr schema.GroupVersionResource) (schema.GroupV
 	}
 	return gvr.GroupVersion().WithKind(kind), nil
 }
+
+func TestConfigOrganizations(t *testing.T) {
+	cfg := Config{
+		Routes: []Route{
+			{OrganizationID: "a"},
+			{OrganizationID: "b"},
+			{OrganizationID: "a"},
+		},
+	}
+	require.Equal(t, []string{"a", "b"}, cfg.Organizations())
+}
