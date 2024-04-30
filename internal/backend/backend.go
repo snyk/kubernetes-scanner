@@ -224,7 +224,6 @@ func (b *Backend) newPostBody(resources []Resource) (io.Reader, error) {
 			Attributes: requestAttributes{
 				ClusterName: b.clusterName,
 				Resources:   resources,
-				// ScannedAt:        metav1.Time{Time: now()},
 			},
 		},
 	}
