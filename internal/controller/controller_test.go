@@ -43,6 +43,7 @@ const (
 	hasFinalizerLabel       = "has-finalizer"
 	orgRouteAll             = "route-all"
 	orgRouteTest            = "route-test"
+	batcherInterval         = 1 * time.Second
 )
 
 func TestController(t *testing.T) {
@@ -74,6 +75,12 @@ func TestController(t *testing.T) {
 			{OrganizationID: orgRouteTest, ClusterScopedResources: false, Namespaces: []string{"test"}},
 			// adding possibly duplicating namespace route for orgRouteAll, we expect this to be de-duplicated automatically
 			{OrganizationID: orgRouteAll, ClusterScopedResources: true, Namespaces: []string{"test"}},
+		},
+		Egress: &config.Egress{
+			Batching: config.Batching{
+				Interval: metav1.Duration{Duration: 1 * time.Second},
+				MaxSize:  20,
+			},
 		},
 		MetricsAddress: "localhost:9091",
 	}

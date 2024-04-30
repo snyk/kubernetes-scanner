@@ -41,8 +41,6 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
-const batcherInterval = 1 * time.Second
-
 func New(cfg *config.Config, s Store) (manager.Manager, error) {
 	mgr, err := ctrl.NewManager(cfg.RestConfig, ctrl.Options{
 		Scheme:                 cfg.Scheme,
@@ -69,7 +67,7 @@ func New(cfg *config.Config, s Store) (manager.Manager, error) {
 			if err := (&reconciler{
 				Reader:        mgr.GetClient(),
 				requeueAfter:  cfg.Scanning.RequeueAfter.Duration,
-				upsertBatcher: newUpsertBatcher(log.Log, s),
+				upsertBatcher: newUpsertBatcher(cfg, log.Log, s),
 				gvk:           gvk,
 				routes:        newResourceRoutes(cfg.Routes),
 				namespaces:    scanType.Namespaces,
@@ -164,11 +162,11 @@ type Store interface {
 	Upsert(ctx context.Context, requestID string, orgID string, resources []backend.Resource) error
 }
 
-func newUpsertBatcher(logger logr.Logger, store Store) *batcher.Batcher[string, backend.Resource] {
+func newUpsertBatcher(cfg *config.Config, logger logr.Logger, store Store) *batcher.Batcher[string, backend.Resource] {
 	retries := retry.Seconds(3, 5, 10, 15, 30)
 	return batcher.NewBatcher(batcher.Config[string, backend.Resource]{
-		MaxBatchSize: 100,
-		Interval:     batcherInterval,
+		MaxBatchSize: cfg.Egress.Batching.MaxSize,
+		Interval:     cfg.Egress.Batching.Interval.Duration,
 		Process: func(ctx context.Context, orgID string, resources []backend.Resource) {
 			requestID := uuid.New().String()
 			reqLogger := logger.WithValues("organization_id", orgID, "request_id", requestID, "batch_size", len(resources))
