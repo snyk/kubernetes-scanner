@@ -29,6 +29,10 @@ data:
     probeAddress: ":{{ .Values.healthCheck.port }}"
     metricsAddress: ":{{ .Values.metrics.port }}"
     clusterName: {{ required "A clusterName is required" .Values.config.clusterName | quote }}
+    {{- if and .Values.config.logging .Values.config.logging.level }}
+    logging:
+      level: {{ .Values.config.logging.level }}
+    {{- end }}
     routes: 
       {{- toYaml .Values.config.routes | nindent 6 }}
     scanning:
