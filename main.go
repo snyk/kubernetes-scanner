@@ -72,15 +72,13 @@ func runController(configFile string, logOpts *zap.Options) (code int) {
 	}
 
 	backend := backend.New(cfg.ClusterName, cfg.Egress, ctrlmetrics.Registry)
-	for _, org := range cfg.Organizations() {
-		err := retry.Retry(ctrl.Log, 3, 5*time.Second, func() error {
-			ctrl.Log.Info("sanity checking backend config", "org_id", org)
-			return backend.SanityCheck(context.Background(), org)
-		})
-		if err != nil {
-			ctrl.Log.Error(err, "sanity check failed")
-			return 1
-		}
+	err = retry.Retry(ctrl.Log, 3, 5*time.Second, func() error {
+		ctrl.Log.Info("sanity checking backend")
+		return backend.SanityCheck(context.Background())
+	})
+	if err != nil {
+		ctrl.Log.Error(err, "sanity check failed")
+		return 1
 	}
 
 	mgr, err := controller.New(cfg, backend)

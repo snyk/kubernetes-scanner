@@ -65,8 +65,8 @@ func New(clusterName string, cfg *config.Egress, reg prometheus.Registerer) *Bac
 
 const contentTypeJSON = "application/vnd.api+json"
 
-func (b *Backend) SanityCheck(ctx context.Context, orgID string) error {
-	endpoint := fmt.Sprintf("%s/rest/orgs/%s?version=2024-04-11", b.apiEndpoint, orgID)
+func (b *Backend) SanityCheck(ctx context.Context) error {
+	endpoint := fmt.Sprintf("%s/rest/self?version=2024-04-22", b.apiEndpoint)
 
 	req, err := http.NewRequest(http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
