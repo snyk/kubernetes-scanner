@@ -128,14 +128,19 @@ func TestSanityBackend(t *testing.T) {
 	ts := httptest.NewServer(&tu)
 	defer ts.Close()
 
-	b := New("my-pet-cluster", &config.Egress{
+	b1 := New("my-pet-cluster", &config.Egress{
 		HTTPClientTimeout:       metav1.Duration{Duration: 1 * time.Second},
 		SnykAPIBaseURL:          ts.URL,
 		SnykServiceAccountToken: testToken,
 	}, prometheus.NewPedanticRegistry())
+	require.NoError(t, b1.SanityCheck(ctx))
 
-	require.NoError(t, b.SanityCheck(ctx, orgID))
-	require.Error(t, b.SanityCheck(ctx, "org-456"))
+	b2 := New("my-sneaky-cluster", &config.Egress{
+		HTTPClientTimeout:       metav1.Duration{Duration: 1 * time.Second},
+		SnykAPIBaseURL:          ts.URL,
+		SnykServiceAccountToken: "bad-token",
+	}, prometheus.NewPedanticRegistry())
+	require.Error(t, b2.SanityCheck(ctx))
 }
 
 type testUpstream struct {
@@ -154,7 +159,7 @@ func (tu *testUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc(fmt.Sprintf("/hidden/orgs/%s/kubernetes_resources", tu.orgID), tu.handleKubernetesResources)
-	mux.HandleFunc(fmt.Sprintf("/rest/orgs/%s", tu.orgID), tu.handleOrg)
+	mux.HandleFunc("/rest/self", tu.handleSelf)
 	mux.ServeHTTP(w, r)
 }
 
@@ -191,7 +196,7 @@ func (tu *testUpstream) handleKubernetesResources(w http.ResponseWriter, r *http
 	require.Equal(tu.t, expected, req.Data.Attributes.Resources)
 }
 
-func (tu *testUpstream) handleOrg(w http.ResponseWriter, r *http.Request) {
+func (tu *testUpstream) handleSelf(w http.ResponseWriter, r *http.Request) {
 }
 
 var pod = &corev1.Pod{
