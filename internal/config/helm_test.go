@@ -49,6 +49,9 @@ func TestHelmChartConfig(t *testing.T) {
 					"clusterScopedResources": true,
 				},
 			},
+			"logging": map[string]interface{}{
+				"level": "warn",
+			},
 		},
 		// while this doesn't test the correctness of the podMonitor, it at least ensures that it
 		// can be decoded and is templated correctly.
@@ -138,6 +141,9 @@ func checkConfigMap(t *testing.T, cm *corev1.ConfigMap) {
 			HTTPClientTimeout:       metav1.Duration{Duration: 5 * time.Second},
 			SnykAPIBaseURL:          "https://api.snyk.io",
 		},
+		Logging: Logging{
+			Level: "warn",
+		},
 	}
 	// these are just *some* GVKs, not all of them.
 	expectedGVKs := [][]GroupVersionKind{
@@ -185,6 +191,7 @@ func checkConfigMap(t *testing.T, cm *corev1.ConfigMap) {
 	require.Equal(t, expected.MetricsAddress, cfg.MetricsAddress)
 	require.Equal(t, expected.ProbeAddress, cfg.ProbeAddress)
 	require.Equal(t, expected.Egress, cfg.Egress)
+	require.Equal(t, expected.Logging, cfg.Logging)
 
 	d, err := cfg.Discovery()
 	if err != nil {
