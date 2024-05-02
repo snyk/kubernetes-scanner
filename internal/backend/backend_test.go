@@ -159,7 +159,7 @@ func (tu *testUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc(fmt.Sprintf("/hidden/orgs/%s/kubernetes_resources", tu.orgID), tu.handleKubernetesResources)
-	mux.HandleFunc(fmt.Sprintf("/rest/self"), tu.handleSelf)
+	mux.HandleFunc("/rest/self", tu.handleSelf)
 	mux.ServeHTTP(w, r)
 }
 
