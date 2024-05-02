@@ -39,14 +39,8 @@ func main() {
 		printVersion = flag.Bool("version", false, "print the version of the kubernetes-scanner and exit")
 		configFile   = flag.String("config", "/etc/kubernetes-scanner/config.yaml", "defines the location of the config file")
 		showLicenses = flag.Bool("licenses", false, "show license information")
-		logOpts      = zap.Options{
-			// The various `zap-` flags in this struct definition can be passed to
-			// this program due to the call to BindFlags() below. None of this is
-			// exposed through helm, yet - a decision we might revisit.
-		}
 	)
 
-	logOpts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
 	switch {
@@ -57,29 +51,32 @@ func main() {
 		os.Exit(licenses.Print())
 
 	default:
-		os.Exit(runController(*configFile, &logOpts))
+		os.Exit(runController(*configFile))
 	}
 }
 
-func runController(configFile string, logOpts *zap.Options) (code int) {
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(logOpts)))
-
+func runController(configFile string) (code int) {
+	zapOpts := []zap.Opts{}
 	cfg, err := config.Read(configFile)
 	if err != nil {
+		ctrl.SetLogger(zap.New(zapOpts...))
 		ctrl.Log.Error(err, "error reading config file")
 		return 1
 	}
 
+	if level, _ := cfg.Logging.ZapLevel(); level != nil {
+		zapOpts = append(zapOpts, zap.Level(level))
+	}
+	ctrl.SetLogger(zap.New(zapOpts...))
+
 	backend := backend.New(cfg.ClusterName, cfg.Egress, ctrlmetrics.Registry)
-	for _, org := range cfg.Organizations() {
-		err := retry.Retry(ctrl.Log, retry.Seconds(5, 5), func() error {
-			ctrl.Log.Info("sanity checking backend config", "org_id", org)
-			return backend.SanityCheck(context.Background(), org)
-		})
-		if err != nil {
-			ctrl.Log.Error(err, "sanity check failed")
-			return 1
-		}
+	err = retry.Retry(ctrl.Log, retry.Seconds(5, 5), func() error {
+		ctrl.Log.Info("sanity checking backend")
+		return backend.SanityCheck(context.Background())
+	})
+	if err != nil {
+		ctrl.Log.Error(err, "sanity check failed")
+		return 1
 	}
 
 	mgr, err := controller.New(cfg, backend)

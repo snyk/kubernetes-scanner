@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"go.uber.org/zap/zapcore"
 	"golang.org/x/exp/slices"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -51,6 +52,8 @@ type Config struct {
 	// ClusterName should be the "friendly" name of the cluster where the scanner is running in.
 	// For example, "prod-us" or "dev-eu."
 	ClusterName string `json:"clusterName"`
+
+	Logging Logging `json:"logging"`
 
 	Scheme     *runtime.Scheme `json:"-"`
 	RestConfig *rest.Config    `json:"-"`
@@ -187,6 +190,10 @@ func Read(configFile string) (*Config, error) {
 
 	if err := c.Egress.validate(); err != nil {
 		return nil, fmt.Errorf("could not validate egress settings: %w", err)
+	}
+
+	if err := c.Logging.validate(); err != nil {
+		return nil, fmt.Errorf("could not validate logging settings: %w", err)
 	}
 
 	return c, nil
@@ -390,4 +397,25 @@ func (c *Config) Organizations() []string {
 		}
 	}
 	return orgs
+}
+
+type Logging struct {
+	Level string `json:"level"`
+}
+
+func (l Logging) validate() error {
+	_, err := l.ZapLevel()
+	return err
+}
+
+func (l Logging) ZapLevel() (*zapcore.Level, error) {
+	if l.Level == "" {
+		return nil, nil
+	}
+
+	level, err := zapcore.ParseLevel(l.Level)
+	if err != nil {
+		return nil, err
+	}
+	return &level, nil
 }
