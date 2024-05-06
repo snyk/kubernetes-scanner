@@ -23,6 +23,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -159,6 +160,11 @@ type testUpstream struct {
 func (tu *testUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Authorization") != "token "+tu.auth {
 		http.Error(w, fmt.Sprintf("invalid authorization header provided: %v", r.Header.Get("Authorization")), 403)
+		return
+	}
+	if !strings.HasPrefix(r.Header.Get("User-Agent"), "kubernetes-scanner/") {
+		// Our client must always specify this.
+		http.Error(w, fmt.Sprintf("invalid user agent provided: %v", r.Header.Get("User-Agent")), 403)
 		return
 	}
 	mux := http.NewServeMux()

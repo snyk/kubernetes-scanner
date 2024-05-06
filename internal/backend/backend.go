@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/snyk/kubernetes-scanner/build"
 	"github.com/snyk/kubernetes-scanner/internal/config"
 )
 
@@ -41,6 +42,7 @@ type Backend struct {
 	apiEndpoint      string
 	clusterName      string
 	authorizationKey string
+	userAgent        string
 
 	client *http.Client
 
@@ -52,6 +54,7 @@ func New(clusterName string, cfg *config.Egress, reg prometheus.Registerer) *Bac
 		apiEndpoint:      cfg.SnykAPIBaseURL,
 		clusterName:      clusterName,
 		authorizationKey: cfg.SnykServiceAccountToken,
+		userAgent:        "kubernetes-scanner/" + build.Version(),
 
 		client: &http.Client{
 			// the default transport automatically honors HTTP_PROXY settings.
@@ -74,6 +77,7 @@ func (b *Backend) SanityCheck(ctx context.Context) error {
 	}
 
 	req.Header.Add("Authorization", "token "+b.authorizationKey)
+	req.Header.Set("User-Agent", b.userAgent)
 
 	resp, err := b.client.Do(req.WithContext(ctx))
 	if err != nil {
@@ -128,6 +132,7 @@ func (b *Backend) do(ctx context.Context, method, orgID, requestID string, body 
 	req.Header.Add("Content-Type", contentTypeJSON)
 	req.Header.Add("Authorization", "token "+b.authorizationKey)
 	req.Header.Add("snyk-request-id", requestID)
+	req.Header.Set("User-Agent", b.userAgent)
 
 	resp, err := b.client.Do(req.WithContext(ctx))
 	if err != nil {
