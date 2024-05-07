@@ -59,7 +59,7 @@ Or using chart dependencies:
 # Chart.yaml
 dependencies:
   - name: kubernetes-scanner
-    version: v0.21.0 # use the latest available version
+    version: v0.22.0 # use the latest available version
     repository: https://snyk.github.io/kubernetes-scanner
     alias: kubernetes-scanner
 ```
