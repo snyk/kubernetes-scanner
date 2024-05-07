@@ -140,6 +140,10 @@ func checkConfigMap(t *testing.T, cm *corev1.ConfigMap) {
 			SnykServiceAccountToken: testToken,
 			HTTPClientTimeout:       metav1.Duration{Duration: 5 * time.Second},
 			SnykAPIBaseURL:          "https://api.snyk.io",
+			Batching: Batching{
+				Interval: metav1.Duration{Duration: 10 * time.Second},
+				MaxSize:  50,
+			},
 		},
 		Logging: Logging{
 			Level: "warn",

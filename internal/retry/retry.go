@@ -6,25 +6,27 @@ import (
 	"github.com/go-logr/logr"
 )
 
+func Seconds(seconds ...int) []time.Duration {
+	times := make([]time.Duration, len(seconds))
+	for i := range seconds {
+		times[i] = time.Duration(seconds[i]) * time.Second
+	}
+	return times
+}
+
 func Retry(
 	logger logr.Logger,
-	attempts int,
-	pause time.Duration,
+	intervals []time.Duration,
 	worker func() error,
 ) error {
-	for attempts >= 0 {
-		err := worker()
-		if err != nil {
-			if attempts <= 1 {
-				return err
-			} else {
-				logger.Error(err, "retrying after error")
-				attempts--
-				time.Sleep(pause)
-			}
+	for _, interval := range intervals {
+		if err := worker(); err != nil {
+			logger.Error(err, "retrying after error")
+			time.Sleep(interval)
 		} else {
 			return nil
 		}
 	}
-	return nil // Should not be reached
+	// Need a final attempt after the last interval.
+	return worker()
 }

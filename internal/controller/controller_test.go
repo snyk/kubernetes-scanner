@@ -18,6 +18,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -32,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	"github.com/snyk/kubernetes-scanner/internal/backend"
 	"github.com/snyk/kubernetes-scanner/internal/config"
 	controllertest "github.com/snyk/kubernetes-scanner/internal/test"
 )
@@ -41,6 +43,7 @@ const (
 	hasFinalizerLabel       = "has-finalizer"
 	orgRouteAll             = "route-all"
 	orgRouteTest            = "route-test"
+	batcherInterval         = 1 * time.Second
 )
 
 func TestController(t *testing.T) {
@@ -72,6 +75,12 @@ func TestController(t *testing.T) {
 			{OrganizationID: orgRouteTest, ClusterScopedResources: false, Namespaces: []string{"test"}},
 			// adding possibly duplicating namespace route for orgRouteAll, we expect this to be de-duplicated automatically
 			{OrganizationID: orgRouteAll, ClusterScopedResources: true, Namespaces: []string{"test"}},
+		},
+		Egress: &config.Egress{
+			Batching: config.Batching{
+				Interval: metav1.Duration{Duration: 1 * time.Second},
+				MaxSize:  20,
+			},
 		},
 		MetricsAddress: "localhost:9091",
 	}
@@ -116,7 +125,7 @@ func TestController(t *testing.T) {
 		}
 		// we need to give the reconciler a bit of time in order to actually record all deletion
 		// events, before we stop it
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(batcherInterval + 100*time.Millisecond)
 	}()
 
 	fb := newFakeBackend()
@@ -135,7 +144,8 @@ func TestController(t *testing.T) {
 		}
 	}()
 
-	events := fb.Start(backendCtx)
+	<-backendCtx.Done()
+	events := fb.events()
 	// e.g. a requeueAfter of 1s, timeout of 1.5 seconds means we expect 2 reconciliations each;
 	// the first one immediately after create, and the next one a second later.
 	numReconciliationLoops := int(timeout/cfg.Scanning.RequeueAfter.Duration) + 1
@@ -282,70 +292,55 @@ func newTest(t *testing.T) test {
 // `collectEvents` is being called as well; the backend-implementations
 // will block until then.
 type fakeBackend struct {
-	reconciled chan resourceIdentifier
-	deleted    chan resourceIdentifier
+	lock            sync.Mutex
+	reconciliations map[resourceIdentifier]int
+	deletions       map[resourceIdentifier]struct{}
 }
 
 func newFakeBackend() *fakeBackend {
 	return &fakeBackend{
-		reconciled: make(chan resourceIdentifier),
-		deleted:    make(chan resourceIdentifier),
+		reconciliations: map[resourceIdentifier]int{},
+		deletions:       map[resourceIdentifier]struct{}{},
 	}
 }
 
-func (f *fakeBackend) Upsert(ctx context.Context, requestID string, obj client.Object, preferredVersion, orgID string, deletedAt *metav1.Time) error {
-	rID := newResourceID(obj, orgID)
-
-	if deletedAt == nil {
-		f.reconciled <- rID
-	} else {
-		f.deleted <- rID
+func (f *fakeBackend) Upsert(ctx context.Context, requestID string, orgID string, resources []backend.Resource) error {
+	for _, resource := range resources {
+		rID := newResourceID(resource.ManifestBlob, orgID)
+		f.lock.Lock()
+		if resource.DeletedAt == nil {
+			if _, ok := f.reconciliations[rID]; !ok {
+				f.reconciliations[rID] = 0
+			}
+			f.reconciliations[rID] += 1
+		} else {
+			f.deletions[rID] = struct{}{}
+		}
+		f.lock.Unlock()
 	}
 
 	return nil
 }
 
+func (f *fakeBackend) events() reconciliationEvents {
+	f.lock.Lock()
+	reconciliationEvents := reconciliationEvents{
+		reconciliations: map[resourceIdentifier]int{},
+		deletions:       map[resourceIdentifier]struct{}{},
+	}
+	for k, v := range f.reconciliations {
+		reconciliationEvents.reconciliations[k] = v
+	}
+	for k, v := range f.deletions {
+		reconciliationEvents.deletions[k] = v
+	}
+	f.lock.Unlock()
+	return reconciliationEvents
+}
+
 type reconciliationEvents struct {
 	reconciliations map[resourceIdentifier]int
 	deletions       map[resourceIdentifier]struct{}
-}
-
-// Start the backend, collecting all reconciliation events which will
-// subsequently be returned once the provided context is cancelled.
-func (f *fakeBackend) Start(ctx context.Context) reconciliationEvents {
-	go func() {
-		defer close(f.reconciled)
-		defer close(f.deleted)
-
-		<-ctx.Done()
-	}()
-
-	reconciliations := make(map[resourceIdentifier]int)
-	deletions := make(map[resourceIdentifier]struct{})
-	// loop until we've finished reading from both channels.
-	for f.reconciled != nil || f.deleted != nil {
-		// select only blocks on non-nil channels, and once a channel is
-		// closed, we set it to nil. This prevents us from reading from
-		// a closed channel again and again.
-		select {
-		case rID, ok := <-f.reconciled:
-			if !ok {
-				f.reconciled = nil
-				continue
-			}
-			reconciliations[rID]++
-
-		case rID, ok := <-f.deleted:
-			if !ok {
-				f.deleted = nil
-				continue
-			}
-
-			deletions[rID] = struct{}{}
-		}
-	}
-
-	return reconciliationEvents{reconciliations, deletions}
 }
 
 type resourceIdentifier struct {

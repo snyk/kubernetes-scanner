@@ -20,7 +20,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/snyk/kubernetes-scanner/build"
 	"github.com/snyk/kubernetes-scanner/internal/backend"
@@ -71,7 +70,7 @@ func runController(configFile string) (code int) {
 	ctrl.SetLogger(zap.New(zapOpts...))
 
 	backend := backend.New(cfg.ClusterName, cfg.Egress, ctrlmetrics.Registry)
-	err = retry.Retry(ctrl.Log, 3, 5*time.Second, func() error {
+	err = retry.Retry(ctrl.Log, retry.Seconds(5, 5), func() error {
 		ctrl.Log.Info("sanity checking backend")
 		return backend.SanityCheck(context.Background())
 	})

@@ -10,7 +10,7 @@ import (
 
 func TestRetrySuccess(t *testing.T) {
 	calls := 0
-	err := Retry(testr.New(t), 3, 0, func() error {
+	err := Retry(testr.New(t), Seconds(0, 0), func() error {
 		calls++
 		return nil
 	})
@@ -20,7 +20,7 @@ func TestRetrySuccess(t *testing.T) {
 
 func TestRetryTwice(t *testing.T) {
 	calls := 0
-	err := Retry(testr.New(t), 3, 0, func() error {
+	err := Retry(testr.New(t), Seconds(0, 0), func() error {
 		calls++
 		if calls >= 2 {
 			return nil
@@ -33,7 +33,7 @@ func TestRetryTwice(t *testing.T) {
 
 func TestRetryFails(t *testing.T) {
 	calls := 0
-	err := Retry(testr.New(t), 3, 0, func() error {
+	err := Retry(testr.New(t), Seconds(0, 0), func() error {
 		calls++
 		return errors.New("boom")
 	})

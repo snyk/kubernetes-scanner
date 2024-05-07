@@ -70,6 +70,23 @@ type Egress struct {
 	// SnykServiceAccountToken is the token of the Snyk Service Account. Is not read from the config
 	// file, can only be set through the environment variable.
 	SnykServiceAccountToken string `json:"-" env:"SNYK_SERVICE_ACCOUNT_TOKEN"`
+
+	// Batching contains the settings we use to batch calls to our backend.
+	Batching Batching `json:"batching"`
+}
+
+type Batching struct {
+	// How long the batcher waits for a batch to accumulate.
+	Interval metav1.Duration `json:"interval"`
+	// Maximum size of a batch.
+	MaxSize int `json:"maxSize"`
+}
+
+func defaultBatching() Batching {
+	return Batching{
+		Interval: metav1.Duration{Duration: 10 * time.Second},
+		MaxSize:  50,
+	}
 }
 
 type Route struct {
@@ -149,6 +166,7 @@ func Read(configFile string) (*Config, error) {
 			HTTPClientTimeout:       metav1.Duration{Duration: HTTPClientDefaultTimeout},
 			SnykAPIBaseURL:          SnykAPIDefaultBaseURL,
 			SnykServiceAccountToken: os.Getenv("SNYK_SERVICE_ACCOUNT_TOKEN"),
+			Batching:                defaultBatching(),
 		},
 	}
 

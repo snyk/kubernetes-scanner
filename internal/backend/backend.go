@@ -91,8 +91,8 @@ func (b *Backend) SanityCheck(ctx context.Context) error {
 	return nil
 }
 
-func (b *Backend) Upsert(ctx context.Context, requestID string, obj client.Object, preferredVersion string, orgID string, deletedAt *metav1.Time) error {
-	body, err := b.newPostBody(obj, preferredVersion, deletedAt)
+func (b *Backend) Upsert(ctx context.Context, requestID string, orgID string, resources []Resource) error {
+	body, err := b.newPostBody(resources)
 	if err != nil {
 		return fmt.Errorf("could not construct request body: %w", err)
 	}
@@ -102,14 +102,20 @@ func (b *Backend) Upsert(ctx context.Context, requestID string, obj client.Objec
 		var transportErr *transportError
 		switch {
 		case errors.As(err, &transportErr):
-			b.recordFailure(ctx, 0, obj, deletedAt)
+			for _, resource := range resources {
+				b.recordFailure(ctx, 0, resource.ManifestBlob, resource.DeletedAt)
+			}
 		case errors.As(err, &httpErr):
-			b.recordFailure(ctx, httpErr.StatusCode, obj, deletedAt)
+			for _, resource := range resources {
+				b.recordFailure(ctx, httpErr.StatusCode, resource.ManifestBlob, resource.DeletedAt)
+			}
 		}
 		return fmt.Errorf("could not post resource: %w", err)
 	}
 
-	b.recordSuccess(ctx, obj)
+	for _, resource := range resources {
+		b.recordSuccess(ctx, resource.ManifestBlob)
+	}
 
 	return nil
 }
@@ -216,18 +222,13 @@ func (h *HTTPError) Values() map[string]any {
 // for testing.
 var now = time.Now
 
-func (b *Backend) newPostBody(obj client.Object, preferredVersion string, deletedAt *metav1.Time) (io.Reader, error) {
+func (b *Backend) newPostBody(resources []Resource) (io.Reader, error) {
 	r := &request{
 		Data: requestData{
 			Type: "kubernetesresource",
 			Attributes: requestAttributes{
 				ClusterName: b.clusterName,
-				Resources: []resource{{
-					ScannedAt:        metav1.Time{Time: now()},
-					ManifestBlob:     obj,
-					PreferredVersion: preferredVersion,
-					DeletedAt:        deletedAt,
-				}},
+				Resources:   resources,
 			},
 		},
 	}
@@ -249,10 +250,10 @@ type requestData struct {
 }
 type requestAttributes struct {
 	ClusterName string     `json:"cluster_name"`
-	Resources   []resource `json:"resources"`
+	Resources   []Resource `json:"resources"`
 }
 
-type resource struct {
+type Resource struct {
 	ManifestBlob     client.Object `json:"manifest_blob"`
 	PreferredVersion string        `json:"preferred_version"`
 	ScannedAt        metav1.Time   `json:"scanned_at"`

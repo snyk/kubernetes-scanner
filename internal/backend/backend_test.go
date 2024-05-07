@@ -68,11 +68,15 @@ func TestBackend(t *testing.T) {
 		SnykAPIBaseURL:          ts.URL,
 		SnykServiceAccountToken: testToken,
 	}, prometheus.NewPedanticRegistry())
-	err := b.Upsert(ctx, "req-id", pod, "v1", orgID, nil)
+	err := b.Upsert(ctx, "req-id", orgID, []Resource{
+		{pod, "v1", metav1.Time{Time: now()}, nil},
+	})
 	require.NoError(t, err)
 
 	tu.expectDeletion = true
-	err = b.Upsert(ctx, "req-id", pod, "v1", orgID, &metav1.Time{Time: now().Local()})
+	err = b.Upsert(ctx, "req-id", orgID, []Resource{
+		{pod, "v1", metav1.Time{Time: now()}, &metav1.Time{Time: now().Local()}},
+	})
 	require.NoError(t, err)
 
 }
@@ -90,7 +94,7 @@ func TestBackendErrorHandling(t *testing.T) {
 		SnykServiceAccountToken: testToken,
 	}, prometheus.NewPedanticRegistry())
 
-	err := b.Upsert(ctx, "req-id", pod, "v1", orgID, nil)
+	err := b.Upsert(ctx, "req-id", orgID, []Resource{{pod, "v1", metav1.Time{Time: now()}, nil}})
 	require.Error(t, err)
 	var h *HTTPError
 	require.ErrorAs(t, err, &h)
@@ -110,13 +114,13 @@ func TestMetricsFromBackend(t *testing.T) {
 		SnykServiceAccountToken: testToken,
 	}, prometheus.NewPedanticRegistry())
 
-	err := b.Upsert(ctx, "req-id", pod, "v1", orgID, nil)
+	err := b.Upsert(ctx, "req-id", orgID, []Resource{{pod, "v1", metav1.Time{Time: now()}, nil}})
 	require.Error(t, err)
 	require.Equal(t, float64(1), b.failures[newResourceID(pod)].retries)
 	require.Equal(t, 400, b.failures[newResourceID(pod)].code)
 
 	tu.statusCodeToReturn = 0
-	err = b.Upsert(ctx, "req-id", pod, "v1", orgID, nil)
+	err = b.Upsert(ctx, "req-id", orgID, []Resource{{pod, "v1", metav1.Time{Time: now()}, nil}})
 	require.NoError(t, err)
 	_, ok := b.failures[newResourceID(pod)]
 	require.False(t, ok)
@@ -188,7 +192,7 @@ func (tu *testUpstream) handleKubernetesResources(w http.ResponseWriter, r *http
 		return
 	}
 
-	expected := []resource{{
+	expected := []Resource{{
 		ManifestBlob:     pod,
 		PreferredVersion: tu.preferredVersion,
 		// when unmarshaling from JSON, metav1.Time also calls Local(), so we need to do too.
@@ -225,9 +229,9 @@ var pod = &corev1.Pod{
 
 // UnmarshalJSON unmarshals the resource type. This needs a custom unmarshal function because the
 // resource type contains a `client.Object` interface, which cannot be unmarshalled automatically.
-func (r *resource) UnmarshalJSON(data []byte) error {
+func (r *Resource) UnmarshalJSON(data []byte) error {
 	// create a temporary type to avoid recursive calls to this method.
-	type s resource
+	type s Resource
 	tmp := s{
 		// we simply set the manifestBlob to an unstructured object, which satisfies the
 		// `client.Object` interface and allows us to extract the apiVersion & kind from it.
@@ -254,7 +258,7 @@ func (r *resource) UnmarshalJSON(data []byte) error {
 	// the GVK is lost when unmarshalling / decoding objects, so we need to add it back.
 	// https://github.com/kubernetes/client-go/issues/541#issuecomment-452312901
 	tmp.ManifestBlob.GetObjectKind().SetGroupVersionKind(tmp.ManifestBlob.GetObjectKind().GroupVersionKind())
-	*r = resource(tmp)
+	*r = Resource(tmp)
 	return nil
 }
 
@@ -271,7 +275,7 @@ func TestJSONMatches(t *testing.T) {
 			Kind:       "Pod",
 		},
 	}
-	r, err := b.newPostBody(pod, "v1", nil)
+	r, err := b.newPostBody([]Resource{{pod, "v1", metav1.Time{Time: now()}, nil}})
 	require.NoError(t, err)
 
 	body, err := io.ReadAll(r)

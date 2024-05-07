@@ -21,10 +21,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/uuid"
 	"github.com/snyk/kubernetes-scanner/internal/backend"
+	"github.com/snyk/kubernetes-scanner/internal/batcher"
 	"github.com/snyk/kubernetes-scanner/internal/config"
 	"github.com/snyk/kubernetes-scanner/internal/kubeobjects"
+	"github.com/snyk/kubernetes-scanner/internal/retry"
 	"golang.org/x/exp/slices"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -64,7 +67,7 @@ func New(cfg *config.Config, s Store) (manager.Manager, error) {
 			if err := (&reconciler{
 				Reader:        mgr.GetClient(),
 				requeueAfter:  cfg.Scanning.RequeueAfter.Duration,
-				Store:         s,
+				upsertBatcher: newUpsertBatcher(cfg, log.Log, s),
 				gvk:           gvk,
 				routes:        newResourceRoutes(cfg.Routes),
 				namespaces:    scanType.Namespaces,
@@ -87,9 +90,9 @@ func New(cfg *config.Config, s Store) (manager.Manager, error) {
 
 type reconciler struct {
 	client.Reader
-	requeueAfter time.Duration
-	gvk          config.GroupVersionKind
-	Store
+	requeueAfter  time.Duration
+	gvk           config.GroupVersionKind
+	upsertBatcher *batcher.Batcher[string, backend.Resource]
 	namespaces    []string
 	routes        resourceRoutes
 	pathsToRemove []string
@@ -153,10 +156,41 @@ func (r resourceRoutes) targetOrganizations(req ctrl.Request) []string {
 }
 
 type Store interface {
-	// Upsert an object into the store. If the deletedAt time is non-zero, a deletion-event should
+	// Upsert objects into the store. If the DeletedAt time is non-zero, a deletion-event should
 	// be recorded. Otherwise, the store should simply ensure that the object saved in the store
 	// matches the one we're providing.
-	Upsert(ctx context.Context, requestID string, obj client.Object, preferredVersion, orgID string, deletedAt *metav1.Time) error
+	Upsert(ctx context.Context, requestID string, orgID string, resources []backend.Resource) error
+}
+
+func newUpsertBatcher(cfg *config.Config, logger logr.Logger, store Store) *batcher.Batcher[string, backend.Resource] {
+	retries := retry.Seconds(3, 5, 10, 15, 30)
+	return batcher.NewBatcher(batcher.Config[string, backend.Resource]{
+		MaxBatchSize: cfg.Egress.Batching.MaxSize,
+		Interval:     cfg.Egress.Batching.Interval.Duration,
+		Process: func(ctx context.Context, orgID string, resources []backend.Resource) {
+			requestID := uuid.New().String()
+			reqLogger := logger.WithValues("organization_id", orgID, "request_id", requestID, "batch_size", len(resources))
+			logError := func(err error) {
+				if err != nil {
+					var httpErr *backend.HTTPError
+					errLogger := reqLogger
+					if errors.As(err, &httpErr) {
+						// when zap finds an `error` type in the values, it will call `Error` and print that
+						// message in the logs. We want to get the underlying values though, to have indexed
+						// fields.
+						errLogger = reqLogger.WithValues("http_response_error", httpErr.Values())
+					}
+					errLogger.Error(fmt.Errorf("could not upsert to store: %w", err), "backend error")
+				}
+			}
+			logError(retry.Retry(reqLogger, retries, func() error {
+				reqLogger.Info("upserting batch")
+				err := store.Upsert(ctx, requestID, orgID, resources)
+				logError(err)
+				return err
+			}))
+		},
+	})
 }
 
 // newObject creates a new object for this reconciler with the reconciler's GVK and the requests
@@ -204,6 +238,7 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	obj := r.newObject(req)
+	scannedAt := metav1.Time{Time: time.Now()}
 	var deleted *metav1.Time
 	switch err := r.Get(ctx, req.NamespacedName, obj); {
 	case kerrors.IsNotFound(err):
@@ -218,36 +253,19 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		logger = logger.WithValues("uid", obj.GetUID(), "reconciliation_action", "upsert")
 	}
 
-	var allErrs error
 	for _, orgID := range orgs {
 		requestID := uuid.New().String()
 		reqLogger := logger.WithValues("organization_id", orgID, "request_id", requestID)
 		ctx = log.IntoContext(ctx, reqLogger)
 
 		r.removeConfiguredAttributes(ctx, obj)
-		if err := r.Store.Upsert(ctx, requestID, obj, r.gvk.PreferredVersion, orgID, deleted); err != nil {
-			var httpErr *backend.HTTPError
-			if errors.As(err, &httpErr) {
-				// when zap finds an `error` type in the values, it will call `Error` and print that
-				// message in the logs. We want to get the underlying values though, to have indexed
-				// fields.
-				reqLogger = reqLogger.WithValues("http_response_error", httpErr.Values())
-			}
-
-			reqLogger.Error(fmt.Errorf("could not upsert to store: %w", err), "failed reconciliation")
-			if allErrs == nil {
-				allErrs = err
-			} else {
-				allErrs = fmt.Errorf("%w, %w", err, allErrs)
-			}
-		} else {
-			reqLogger.Info("successful upsert")
+		resource := backend.Resource{
+			ManifestBlob:     obj,
+			PreferredVersion: r.gvk.PreferredVersion,
+			ScannedAt:        scannedAt,
+			DeletedAt:        deleted,
 		}
-
-	}
-
-	if allErrs != nil {
-		return ctrl.Result{}, allErrs
+		r.upsertBatcher.Queue(orgID, resource)
 	}
 
 	logger.Info("successful reconciliation")
