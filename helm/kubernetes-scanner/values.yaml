@@ -210,11 +210,10 @@ config:
   egress:
     httpClientTimeout: "5s"
     snykAPIBaseURL: "https://api.snyk.io"
-  # Optionally, you can set the logging level for the scanner.  Supported
-  # values include: `error`, `warn`, `info`, `debug`.  If not specified,
-  # defaults to `info`.
-  # logging:
-  #   level: info
+  # The logging level for the scanner.  Supported values include: `error`,
+  # `warn`, `info`, `debug`.
+  logging:
+    level: info
 
 # MANDATORY: The name of a secret containing auth credentials, which must be
 # provisioned outside of this chart.
