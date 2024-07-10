@@ -29,6 +29,7 @@ import (
 	"github.com/snyk/kubernetes-scanner/licenses"
 
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
@@ -67,7 +68,9 @@ func runController(configFile string) (code int) {
 	if level, _ := cfg.Logging.ZapLevel(); level != nil {
 		zapOpts = append(zapOpts, zap.Level(level))
 	}
-	ctrl.SetLogger(zap.New(zapOpts...))
+	logger := zap.New(zapOpts...)
+	ctrl.SetLogger(logger)
+	klog.SetLogger(logger)
 
 	backend := backend.New(cfg.ClusterName, cfg.Egress, ctrlmetrics.Registry)
 	err = retry.Retry(ctrl.Log, retry.Seconds(5, 5), func() error {
