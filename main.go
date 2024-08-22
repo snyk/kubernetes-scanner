@@ -81,6 +81,7 @@ func runController(configFile string) (code int) {
 		ctrl.Log.Error(err, "sanity check failed")
 		return 1
 	}
+	ctrl.Log.Info("backend sanity check successful")
 
 	mgr, err := controller.New(cfg, backend)
 	if err != nil {
