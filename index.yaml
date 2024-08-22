@@ -2,6 +2,14 @@ apiVersion: v1
 entries:
   kubernetes-scanner:
   - apiVersion: v1
+    created: "2024-08-22T16:33:53.342393355Z"
+    description: kubernetes-scanner Chart
+    digest: d3f48316b15180f4af0d847f051f364862530c52542ca47ebdb3eb69cc9f647d
+    name: kubernetes-scanner
+    urls:
+    - https://github.com/snyk/kubernetes-scanner/releases/download/v0.22.3/kubernetes-scanner-v0.22.3.tgz
+    version: v0.22.3
+  - apiVersion: v1
     created: "2024-07-10T08:30:34.965380793Z"
     description: kubernetes-scanner Chart
     digest: 8f8116b6ff366c69c838faf3558f3f5da63380263c04531d5b0fbfc05958eaad
@@ -353,4 +361,4 @@ entries:
     urls:
     - https://github.com/snyk/kubernetes-scanner/releases/download/v0.1.2/kubernetes-scanner.tgz
     version: v0.1.2
-generated: "2024-07-10T08:30:34.965645807Z"
+generated: "2024-08-22T16:33:53.342640691Z"
