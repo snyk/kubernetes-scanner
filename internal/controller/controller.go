@@ -42,6 +42,7 @@ import (
 )
 
 func New(cfg *config.Config, s Store) (manager.Manager, error) {
+	ctrl.Log.Info("creating manager")
 	mgr, err := ctrl.NewManager(cfg.RestConfig, ctrl.Options{
 		Scheme:                 cfg.Scheme,
 		Metrics:                metricsserver.Options{BindAddress: cfg.MetricsAddress},
@@ -51,6 +52,7 @@ func New(cfg *config.Config, s Store) (manager.Manager, error) {
 		return nil, fmt.Errorf("unable to start manager: %w", err)
 	}
 
+	ctrl.Log.Info("creating discovery client")
 	discovery, err := cfg.Discovery()
 	if err != nil {
 		return nil, fmt.Errorf("unable to create discovery client: %w", err)
@@ -78,6 +80,7 @@ func New(cfg *config.Config, s Store) (manager.Manager, error) {
 		}
 	}
 
+	ctrl.Log.Info("starting health checks")
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		return nil, fmt.Errorf("unable to setup health check: %w", err)
 	}
