@@ -29,7 +29,7 @@ If organization level service account is used, it must be associated with the or
 kubernetes data. Group level service accounts can correlate data to any organization under the group.
 
 ```shell
-kubectl create secret generic <secret containing your auth credentials> \
+kubectl create secret generic <secret name> \
   --from-literal=snykServiceAccountToken=<your-service-account-token>
 ```
 
@@ -42,7 +42,7 @@ helm repo add kubernetes-scanner https://snyk.github.io/kubernetes-scanner
 helm repo update
 
 helm install <release-name> \
-	--set "secretName=<secret containing your auth credentials>" \
+	--set "secretName=<secret name>" \
 	--set "config.clusterName=<your human friendly cluster name>" \
 	--set "config.routes[0].organizationID=<your Snyk organization ID>" \
 	--set "config.routes[0].clusterScopedResources=true" \
