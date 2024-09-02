@@ -134,6 +134,9 @@ func (r Route) validate() error {
 
 // default values for config settings
 const (
+	// KubernetesRestDefaultTimeout is the default timeout for requests made to the Kubernetes Rest API.
+	KubernetesRestDefaultTimeout = 5 * time.Second
+
 	// HTTPClientDefaultTimeout is the default value for the HTTPClientTimeout setting.
 	HTTPClientDefaultTimeout = 5 * time.Second
 
@@ -172,6 +175,10 @@ func Read(configFile string) (*Config, error) {
 
 	if c.RestConfig, err = ctrl.GetConfig(); err != nil {
 		return nil, fmt.Errorf("could not get kubernetes REST config: %v", err)
+	}
+	// Make sure a timeout is present in the Kubernetes API Rest config.
+	if c.RestConfig != nil && c.RestConfig.Timeout == 0 {
+		c.RestConfig.Timeout = KubernetesRestDefaultTimeout
 	}
 
 	if err := yaml.Unmarshal(b, c); err != nil {
