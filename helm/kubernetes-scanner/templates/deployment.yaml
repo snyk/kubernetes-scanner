@@ -20,6 +20,9 @@ metadata:
   name: {{ include "kubernetes-scanner.fullname" . }}
   labels:
     {{- include "kubernetes-scanner.labels" . | nindent 4 }}
+    {{- with .Values.deploymentLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end}}
 spec:
   # not configurable as there is no leader-election / load-balancing mechanism.
   # (two scanners would just do twice the work)
