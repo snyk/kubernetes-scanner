@@ -196,7 +196,8 @@ workflows:
               ignore: [main, gh-pages]
       - security_scans:
           name: Security Scans
-          context: ["appsecex_integrations"]
+          context:
+            - appsecex_integrations
       - commitlint/lint:
           name: Commit Lint
           filters:
