@@ -235,6 +235,7 @@ workflows:
           context:
             - snyk-docker-build
             - snyk-apps
+            - appsecex_integrations  # For the security scans
             # There's two types of tokens in this, the Docker credentials
             # (username & password) and a Github PAT. Both are stored in
             # 1Password ("DockerHub TIKI kubernetes-scanner" and "Github TIKI
