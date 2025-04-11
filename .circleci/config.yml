@@ -80,7 +80,7 @@ jobs:
             git diff --quiet HEAD
 
   "Go test and lint":
-    resource_class: medium
+    resource_class: large
     executor:
       name: go/default
       tag: "1.23"
