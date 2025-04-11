@@ -46,7 +46,7 @@ commands:
           target-file: Dockerfile
           monitor-on-build: false
           fail-on-issues: true
-          organization: snyk-apps
+          organization: appsecex_integrations
 
 jobs:
   # All Snyk scanning jobs use a SNYK_TOKEN from the tiki-snyk Circle context,
