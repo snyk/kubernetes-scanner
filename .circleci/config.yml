@@ -46,7 +46,7 @@ commands:
           target-file: Dockerfile
           monitor-on-build: false
           fail-on-issues: true
-          organization: snyk-apps
+          organization: appsecex_integrations
 
 jobs:
   # All Snyk scanning jobs use a SNYK_TOKEN from the tiki-snyk Circle context,
@@ -80,7 +80,7 @@ jobs:
             git diff --quiet HEAD
 
   "Go test and lint":
-    resource_class: medium
+    resource_class: large
     executor:
       name: go/default
       tag: "1.23"
