@@ -132,21 +132,26 @@ func TestController(t *testing.T) {
 
 	fb := newFakeBackend()
 	backendCtx, backendCancel := context.WithCancel(ctx)
+	var backendErr error
 	go func() {
 		defer backendCancel()
 
 		mgr, err := New(cfg, fb)
 		if err != nil {
-			t.Fatalf("could not setup controller: %v", err)
+			t.Errorf("could not setup controller: %v", err)
+			backendErr = err
+			return
 		}
 
 		// mgr.Start returns once ctx is done.
 		if err := mgr.Start(managerCtx); err != nil {
 			t.Errorf("could not start manager: %v", err)
+			backendErr = err
 		}
 	}()
 
 	<-backendCtx.Done()
+	require.NoError(t, backendErr)
 	events := fb.events()
 	// e.g. a requeueAfter of 1s, timeout of 1.5 seconds means we expect 2 reconciliations each;
 	// the first one immediately after create, and the next one a second later.
