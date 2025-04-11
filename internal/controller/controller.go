@@ -17,8 +17,12 @@ package controller
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -32,6 +36,7 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -300,6 +305,47 @@ func (r *reconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(o).
-		Named("snyk-kubernetes-scanner").
+		Named(controllerNameFromGVK(r.gvk.GroupVersionKind)).
 		Complete(r)
+}
+
+func controllerNameFromGVK(gvk schema.GroupVersionKind) string {
+	kind := strings.ToLower(gvk.Kind)
+	group := strings.ReplaceAll(gvk.Group, ".", "-")
+	version := strings.ToLower(gvk.Version)
+	return fmt.Sprintf("snyk-scanner-%s-%s-%s", group, version, kind)
+}
+
+var invalidControllerNameChars = regexp.MustCompile(`[^a-z0-9\-]`)
+
+func generateControllerName(gvk schema.GroupVersionKind) string {
+	sanitize := func(s string) string {
+		s = strings.ToLower(s)
+		s = strings.ReplaceAll(s, ".", "-")
+		s = strings.ReplaceAll(s, "/", "-")
+		s = strings.ReplaceAll(s, "_", "-")
+		s = invalidControllerNameChars.ReplaceAllString(s, "")
+		return s
+	}
+
+	group := sanitize(gvk.Group)
+	version := sanitize(gvk.Version)
+	kind := sanitize(gvk.Kind)
+	base := fmt.Sprintf("snyk-scanner-%s-%s-%s", group, version, kind)
+
+	// If it fits in the limit, just use this name.
+	const maxControllerNameLength = 63
+	if len(base) <= maxControllerNameLength {
+		return base
+	}
+
+	const hashLength = 8
+	hash := func(s string) string {
+		sum := sha1.Sum([]byte(s))
+		return hex.EncodeToString(sum[:])[:hashLength]
+	}
+
+	// Otherwise, truncate and add hash for uniqueness.
+	truncate := maxControllerNameLength - hashLength - 1 // for `-`
+	return fmt.Sprintf("%s-%s", base[:truncate], hash(base))
 }

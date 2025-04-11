@@ -18,10 +18,12 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -135,7 +137,7 @@ func TestController(t *testing.T) {
 
 		mgr, err := New(cfg, fb)
 		if err != nil {
-			t.Errorf("could not setup controller: %v", err)
+			t.Fatalf("could not setup controller: %v", err)
 		}
 
 		// mgr.Start returns once ctx is done.
@@ -470,4 +472,35 @@ func (c testClient) Create(ctx context.Context, obj client.Object, opts ...clien
 	defer obj.GetObjectKind().SetGroupVersionKind(gvk)
 
 	return c.Client.Create(ctx, obj, opts...)
+}
+
+func TestGenerateControllerName(t *testing.T) {
+	require.Equal(t, "snyk-scanner-my-company-io-v1-test-databaseconfig", generateControllerName(schema.GroupVersionKind{
+		Group:   "my_company.io",
+		Version: "v1_test",
+		Kind:    "DatabaseConfig",
+	}))
+
+	long1 := generateControllerName(schema.GroupVersionKind{
+		Group:   "long.domain.name.with.many.sections.example.io",
+		Version: "v1alpha1",
+		Kind:    "SuperLongResourceNameThatShouldDefinitelyBeTruncated",
+	})
+	require.True(
+		t,
+		strings.HasPrefix(long1, "snyk-scanner-long-domain-name-with-many-sections-examp-"),
+	)
+	require.LessOrEqual(t, len(long1), 63)
+
+	long2 := generateControllerName(schema.GroupVersionKind{
+		Group:   "long.domain.name.with.many.sections.example.io",
+		Version: "v1alpha1",
+		Kind:    "DifferentLongResourceName",
+	})
+	require.True(
+		t,
+		strings.HasPrefix(long2, "snyk-scanner-long-domain-name-with-many-sections-examp-"),
+	)
+	require.LessOrEqual(t, len(long2), 63)
+	require.NotEqual(t, long1, long2)
 }
