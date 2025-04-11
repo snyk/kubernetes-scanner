@@ -300,5 +300,6 @@ func (r *reconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(o).
+		Named("snyk-kubernetes-scanner").
 		Complete(r)
 }
