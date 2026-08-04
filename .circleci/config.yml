@@ -185,6 +185,7 @@ workflows:
           name: Scan repository for secrets
           context:
             - snyk-bot-slack
+            - prodsec-orb-runtime
           channel: group-cloud-security-vulnerabilities-alerts
       - "Go test and lint":
           filters:
@@ -202,6 +203,7 @@ workflows:
           name: Security Scans
           context: 
             - appsecex_integrations
+            - prodsec-orb-runtime
       - commitlint/lint:
           name: Commit Lint
           filters:
