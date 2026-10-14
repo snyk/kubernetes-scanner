@@ -7,19 +7,16 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"reflect"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/snyk/kubernetes-scanner/internal/backend"
 	"github.com/snyk/kubernetes-scanner/internal/config"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	k8sconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -112,14 +109,11 @@ func runTests(ctx context.Context, cfg config.Config) error {
 		return fmt.Errorf("error waiting for deployment to be up: %w", err)
 	}
 
-	b := backend.New(cfg.ClusterName, cfg.Egress, prometheus.NewPedanticRegistry())
-	orgID := cfg.Routes[0].OrganizationID
-
-	// TODO: the tests currently check whether the single node we expect in our test env has synced
-	// to the backend. This isn't much, and we probably want to extend this. Also, the code could be
-	// cleaned up a bit as well.
+	// The backend no longer offers a way to read resources back, so we can't compare what the
+	// scanner pushed with the local nodes. Instead we check that the scanner has scanned the
+	// single node we expect in our test env and that it isn't reporting any failures to push it.
+	// TODO: the tests currently only cover that one node. We probably want to extend this.
 	if err := eventually(func() error {
-		// list all local nodes
 		nl := &corev1.NodeList{}
 		if err := c.List(ctx, nl); err != nil {
 			return fmt.Errorf("error listing nodes: %w", err)
@@ -127,59 +121,61 @@ func runTests(ctx context.Context, cfg config.Config) error {
 		if len(nl.Items) != 1 {
 			return fmt.Errorf("unexpected amount of nodes in CI env: %v", len(nl.Items))
 		}
-
-		// and list all "remote" nodes
-		resp, err := b.List(ctx, orgID)
-		if err != nil {
-			return fmt.Errorf("could not execute list request: %w", err)
-		}
-
-		nodesFromBackend, err := toNodes(resp, cfg.ClusterName)
-		if err != nil {
-			return fmt.Errorf("could not convert response data to nodes: %w", err)
-		}
-
-		if len(nodesFromBackend) != 1 {
-			return fmt.Errorf("got wrong amount of nodes from backend: %v", len(nodesFromBackend))
-		}
-
-		return assertNodesEqual(nl.Items[0], nodesFromBackend[0])
+		return nil
 	}, time.Minute, 3*time.Second); err != nil {
-		return fmt.Errorf("error waiting for backend to receive node: %w", err)
+		return fmt.Errorf("error listing nodes: %w", err)
+	}
+
+	if err := assertNoBackendErrors(ctx, restCfg, c); err != nil {
+		return fmt.Errorf("scanner reported errors sending resources to the backend: %w", err)
 	}
 
 	return nil
 }
 
-func toNodes(rd []backend.ResponseData, clusterName string) ([]corev1.Node, error) {
-	nodesFromBackend := make([]corev1.Node, 0, len(rd))
-	for _, data := range rd {
-		if data.Attributes.ClusterName != clusterName {
-			continue
+// assertNoBackendErrors scrapes the scanner's metrics and fails if it has recorded any error while
+// sending resources to the backend, or still has unreconciled resources. A resource that the
+// backend rejected would show up in one of the two. It needs to see a quiet scanner for a while, so
+// that it doesn't pass before the scanner had a chance to push anything.
+func assertNoBackendErrors(ctx context.Context, restCfg *rest.Config, c client.Client) error {
+	clientset, err := kubernetes.NewForConfig(restCfg)
+	if err != nil {
+		return fmt.Errorf("could not create clientset: %w", err)
+	}
+
+	var quietScrapes int
+	return eventually(func() error {
+		pl := &corev1.PodList{}
+		if err := c.List(ctx, pl, &client.ListOptions{Namespace: scannerNamespace}); err != nil {
+			return fmt.Errorf("error listing pods: %w", err)
+		}
+		if len(pl.Items) != 1 {
+			return fmt.Errorf("expected 1 scanner pod, but got %v", len(pl.Items))
 		}
 
-		n := &corev1.Node{TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Node"}}
-		if err := fromUnstructured(data.Attributes.ManifestBlob, n); err != nil {
-			return nil, err
+		raw, err := clientset.CoreV1().Pods(scannerNamespace).
+			ProxyGet("http", pl.Items[0].Name, "8080", "metrics", nil).DoRaw(ctx)
+		if err != nil {
+			quietScrapes = 0
+			return fmt.Errorf("could not scrape scanner metrics: %w", err)
 		}
 
-		nodesFromBackend = append(nodesFromBackend, *n)
-	}
+		for _, line := range strings.Split(string(raw), "\n") {
+			if strings.HasPrefix(line, "kubernetes_scanner_backend_errors_total{") {
+				return fmt.Errorf("unexpected metric: %s", line)
+			}
+			if strings.HasPrefix(line, "kubernetes_scanner_unreconciled_resources_total ") &&
+				!strings.HasSuffix(line, " 0") {
+				return fmt.Errorf("unexpected metric: %s", line)
+			}
+		}
 
-	return nodesFromBackend, nil
-}
-
-func fromUnstructured(b map[string]interface{}, into client.Object) error {
-	unstructuredObj := &unstructured.Unstructured{Object: b}
-	if unstructuredObj.GetObjectKind().GroupVersionKind() != into.GetObjectKind().GroupVersionKind() {
-		return fmt.Errorf("object kinds do not match. expected=%v, got=%v",
-			into.GetObjectKind().GroupVersionKind(), unstructuredObj.GetObjectKind().GroupVersionKind())
-	}
-
-	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(b, into); err != nil {
-		return fmt.Errorf("error converting unstructured resource: %w", err)
-	}
-	return nil
+		quietScrapes++
+		if quietScrapes < 10 {
+			return fmt.Errorf("not enough quiet scrapes yet: %v", quietScrapes)
+		}
+		return nil
+	}, 2*time.Minute, 3*time.Second)
 }
 
 func waitForDeployment(ctx context.Context, c client.Client) error {
@@ -299,39 +295,4 @@ func newClusterName() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
 	return fmt.Sprintf("smoke_test_%x", b)
-}
-
-func assertNodesEqual(expected, actual corev1.Node) error {
-	removeManagedFieldsTimestamp(expected.ManagedFields)
-	removeManagedFieldsTimestamp(actual.ManagedFields)
-	removeNodeConditionsLastHeartbeat(expected.Status.Conditions)
-	removeNodeConditionsLastHeartbeat(actual.Status.Conditions)
-
-	expected.ResourceVersion = ""
-	actual.ResourceVersion = ""
-
-	// when doing `client.List`, the typed objects will not have a GVK set. Because of that, we'll
-	// just remove it from both expceted & actual before comparison.
-	expected.SetGroupVersionKind(schema.GroupVersionKind{})
-	actual.SetGroupVersionKind(schema.GroupVersionKind{})
-
-	if !reflect.DeepEqual(expected, actual) {
-		ex, _ := json.Marshal(expected)
-		ac, _ := json.Marshal(actual)
-		return fmt.Errorf("nodes are not equal.\n\n\nexpected: %s\n\nactual: %s", ex, ac)
-	}
-
-	return nil
-}
-
-func removeNodeConditionsLastHeartbeat(ncs []corev1.NodeCondition) {
-	for i := range ncs {
-		ncs[i].LastHeartbeatTime = metav1.Time{}
-	}
-}
-
-func removeManagedFieldsTimestamp(managedFields []metav1.ManagedFieldsEntry) {
-	for i := range managedFields {
-		managedFields[i].Time = nil
-	}
 }
