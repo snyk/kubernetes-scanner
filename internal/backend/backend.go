@@ -146,27 +146,6 @@ func (b *Backend) do(ctx context.Context, method, orgID, requestID string, body 
 	return resp.Body, nil
 }
 
-func (b *Backend) List(ctx context.Context, orgID string) ([]ResponseData, error) {
-	body, err := b.do(ctx, http.MethodGet, orgID, "", nil) // TODO: add requestID
-	if err != nil {
-		return nil, fmt.Errorf("error making HTTP request: %w", err)
-	}
-
-	defer body.Close()
-
-	respBody, err := io.ReadAll(body)
-	if err != nil {
-		return nil, fmt.Errorf("could not read HTTP response body: %w", err)
-	}
-
-	var responseBody response
-	if err := json.Unmarshal(respBody, &responseBody); err != nil {
-		return nil, fmt.Errorf("could not unmarshal body: %w", err)
-	}
-
-	return responseBody.Data, nil
-}
-
 type transportError struct {
 	err error
 }
@@ -258,27 +237,6 @@ type Resource struct {
 	PreferredVersion string        `json:"preferred_version"`
 	ScannedAt        metav1.Time   `json:"scanned_at"`
 	DeletedAt        *metav1.Time  `json:"deleted_at,omitempty"`
-}
-
-type response struct {
-	Data []ResponseData `json:"data,omitempty"`
-	// technically there's more fields here for pagination, but the type that defines them is in a
-	// private repo & we don't need them (currently)...
-}
-
-type ResponseData struct {
-	Attributes *ResponseAttributes `json:"attributes,omitempty"`
-	ID         string              `json:"id"`
-	Type       string              `json:"type"`
-}
-
-type ResponseAttributes struct {
-	ClusterName      string                 `json:"cluster_name"`
-	DeletedAt        string                 `json:"deleted_at,omitempty"`
-	ID               string                 `json:"id"`
-	ManifestBlob     map[string]interface{} `json:"manifest_blob"`
-	PreferredVersion string                 `json:"preferred_version"`
-	ScannedAt        string                 `json:"scanned_at,omitempty"`
 }
 
 // resourceIdentifier identifies a specific resource. This cannot be done through
