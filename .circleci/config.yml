@@ -209,7 +209,7 @@ workflows:
           filters:
             branches:
               ignore: [main, gh-pages]
-          node-version: 18.20.1  # Should not be necessary once this orb is updated
+          node-version: 22.12.0  # the latest commitlint needs node >= 22; 18 fails on a regex "v" flag
       - "Smoke Test":
           filters:
             branches:
