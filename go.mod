@@ -2,7 +2,7 @@ module github.com/snyk/kubernetes-scanner
 
 go 1.24.0
 
-toolchain go1.24.4
+toolchain go1.25.13
 
 require (
 	github.com/go-git/go-git/v5 v5.14.0
