@@ -104,8 +104,9 @@ jobs:
       # That means all tests are run every time, instead of honoring the cache.
       - run:
           command: |
-            # install required tools for kubebuilder tests.
-            go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+            # install required tools for kubebuilder tests. Keep the release in step with
+            # controller-runtime in go.mod: @latest requires a newer Go than we build with.
+            go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.20
             source <(setup-envtest use -p env) 
             go test -race ./...
       - save-build-cache
