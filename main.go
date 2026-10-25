@@ -56,6 +56,11 @@ func main() {
 	}
 }
 
+// deprecationNotice is logged on every start so that it shows up in the logs of installed scanners.
+const deprecationNotice = "DEPRECATED: kubernetes-scanner and the Snyk Kubernetes Resource Store are end of life. " +
+	"Snyk no longer uses this data and the ingestion API will stop accepting requests, after which this " +
+	"scanner will log errors. Please uninstall kubernetes-scanner from this cluster."
+
 func runController(configFile string) (code int) {
 	zapOpts := []zap.Opts{}
 	cfg, err := config.Read(configFile)
@@ -71,6 +76,8 @@ func runController(configFile string) (code int) {
 	logger := zap.New(zapOpts...)
 	ctrl.SetLogger(logger)
 	klog.SetLogger(logger)
+
+	ctrl.Log.Info(deprecationNotice)
 
 	backend := backend.New(cfg.ClusterName, cfg.Egress, ctrlmetrics.Registry)
 	err = retry.Retry(ctrl.Log, retry.Seconds(5, 5), func() error {
