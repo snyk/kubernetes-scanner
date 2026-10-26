@@ -1,9 +1,9 @@
 # Kubernetes-Scanner
 
-> **Deprecated.** kubernetes-scanner and the Snyk Kubernetes Resource Store are
-> end of life. Snyk no longer uses the data this component collects, and the
-> ingestion API will stop accepting requests. Please uninstall kubernetes-scanner
-> from your clusters (`helm uninstall <release>`). Do not install it in new clusters.
+> **Deprecated.** kubernetes-scanner is end of life. Snyk no longer uses the data
+> this component collects and will stop accepting it. Please uninstall
+> kubernetes-scanner from your clusters (`helm uninstall <release>`). Do not
+> install it in new clusters.
 
 The kubernetes-scanner watches the configured types on a Kubernetes API server
 and will send resource configurations to Snyk.

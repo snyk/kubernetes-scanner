@@ -57,8 +57,8 @@ func main() {
 }
 
 // deprecationNotice is logged on every start so that it shows up in the logs of installed scanners.
-const deprecationNotice = "DEPRECATED: kubernetes-scanner and the Snyk Kubernetes Resource Store are end of life. " +
-	"Snyk no longer uses this data and the ingestion API will stop accepting requests, after which this " +
+const deprecationNotice = "DEPRECATED: kubernetes-scanner is end of life. " +
+	"Snyk no longer uses the data it sends and will stop accepting it, after which this " +
 	"scanner will log errors. Please uninstall kubernetes-scanner from this cluster."
 
 func runController(configFile string) (code int) {
