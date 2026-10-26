@@ -171,7 +171,7 @@ jobs:
   semantic-release:
     resource_class: small
     docker:
-      - image: cimg/node:21.6.1
+      - image: cimg/node:22.22.3
     steps:
       - checkout
       - run:
