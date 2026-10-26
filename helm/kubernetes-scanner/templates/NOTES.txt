@@ -1,0 +1,6 @@
+DEPRECATED: kubernetes-scanner is end of life.
+
+Snyk no longer uses the data this scanner collects and will stop accepting it,
+after which the scanner will log errors. Please uninstall it:
+
+  helm uninstall {{ .Release.Name }} --namespace {{ .Release.Namespace }}
